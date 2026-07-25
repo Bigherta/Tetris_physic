@@ -94,6 +94,23 @@ const COLORS = {
 };
 const SHAPE_KEYS = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
 
+// 材质 (Materials) -----------------------------------------
+// 每次生成方块有 STONE_PROB 概率为"石块": 密度更大 (更重, 落地冲击更强, 更难被推动).
+// 石块用专属灰岩外观表示, 与 7 种形状颜色均不冲突 (灰为中性色, 无需改原有形状色).
+const STONE_PROB = 0.1;               // 生成石块的概率 (1/10)
+const STONE_DENSITY = 0.012;          // 石块密度 (普通 0.002 -> 6× 重)
+// 石块专属配色: 灰岩 (浅灰高光 / 中灰主色 / 深灰描边)
+const STONE = { fill: '#9ca3af', light: '#d1d5db', dark: '#4b5563' };
+// 材质 -> 物理参数表 (createPiece/releaseActive 据此设置密度/摩擦/弹性)
+const MATERIALS = {
+  normal: { density: BLOCK_DENSITY,  friction: BLOCK_FRICTION, frictionStatic: BLOCK_FRICTION_STATIC, restitution: BLOCK_RESTITUTION },
+  stone:  { density: STONE_DENSITY,  friction: BLOCK_FRICTION, frictionStatic: BLOCK_FRICTION_STATIC, restitution: BLOCK_RESTITUTION },
+};
+// 材质 -> 外观配色 (stone 用专属灰岩, 其余按形状色)
+function materialColor(material, shapeKey) {
+  return material === 'stone' ? STONE : COLORS[shapeKey];
+}
+
 const UI = {
   bg: '#0b1020',
   grid: 'rgba(255,255,255,0.04)',

@@ -143,17 +143,19 @@ class Renderer {
   _drawBlockBody(body, alpha) {
     const ctx = this.ctx;
     const col = body.pieceColor;
+    const isStone = body.pieceMaterial === 'stone';
     ctx.save();
     ctx.globalAlpha = alpha;
     for (const p of body.parts) {
       if (p === body) continue;
-      this._drawTile(p.position.x, p.position.y, body.angle, CELL, col);
+      this._drawTile(p.position.x, p.position.y, body.angle, CELL, col, isStone);
     }
     ctx.restore();
   }
 
-  // ---- 单格斜面贴片 -------------------------------------------
-  _drawTile(cx, cy, angle, size, col) {
+  // ---- 单格贴片 (普通 / 石块) ---------------------------------
+  // 石块: 灰岩底 (col 已为 STONE 灰) + 深色麻点 + 一条裂纹, 体现"沉重岩石".
+  _drawTile(cx, cy, angle, size, col, isStone = false) {
     const ctx = this.ctx;
     ctx.save();
     ctx.translate(cx, cy);
@@ -169,7 +171,7 @@ class Renderer {
     g.addColorStop(1, col.fill);
     ctx.fillStyle = g; ctx.fill();
     // 顶/左 高光
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.strokeStyle = isStone ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.35)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(-size / 2 + inset + 1, -size / 2 + inset + 1);
@@ -177,6 +179,21 @@ class Renderer {
     ctx.moveTo(-size / 2 + inset + 1, -size / 2 + inset + 1);
     ctx.lineTo(-size / 2 + inset + 1, size / 2 - inset - 1);
     ctx.stroke();
+    // 石块专属: 深灰麻点 + 一条裂纹
+    if (isStone) {
+      ctx.fillStyle = 'rgba(75,85,99,0.55)';
+      const r = size * 0.07;
+      ctx.beginPath(); ctx.arc(-size * 0.18, -size * 0.05, r, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(size * 0.13, size * 0.16, r * 0.8, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(size * 0.06, -size * 0.2, r * 0.7, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(75,85,99,0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-size / 2 + inset + 2, size / 2 - inset - 3);
+      ctx.lineTo(-size * 0.05, size * 0.05);
+      ctx.lineTo(size / 2 - inset - 3, -size / 2 + inset + 3);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -203,7 +220,8 @@ class Renderer {
   }
 
   // ---- 下一块预览 ---------------------------------------------
-  drawNext(shapeKey) {
+  // shapeKey + material: 石块预览也用灰岩外观
+  drawNext(shapeKey, material = 'normal') {
     if (!this.nextCtx || !shapeKey) return;
     const ctx = this.nextCtx;
     const W = this.nextCanvas.width, H = this.nextCanvas.height;
@@ -216,19 +234,20 @@ class Renderer {
     const u = Math.min(W / (b.w + 1), H / (b.h + 1), 22);
     const ox = (W - b.w * u) / 2 - b.minX * u;
     const oy = (H - b.h * u) / 2 - b.minY * u;
-    const col = COLORS[shapeKey];
+    const isStone = material === 'stone';
+    const col = materialColor(material, shapeKey);
     ctx.save();
     ctx.translate(ox, oy);
     for (const [cx, cy] of cells) {
       ctx.save();
       ctx.translate(cx * u, cy * u);
-      this._roundRectScaled(u, col);
+      this._roundRectScaled(u, col, isStone);
       ctx.restore();
     }
     ctx.restore();
   }
 
-  _roundRectScaled(u, col) {
+  _roundRectScaled(u, col, isStone = false) {
     const ctx = this.nextCtx;
     this._roundRect(ctx, -u / 2, -u / 2, u, u, 3);
     ctx.fillStyle = col.dark; ctx.fill();
@@ -237,5 +256,12 @@ class Renderer {
     const g = ctx.createLinearGradient(0, -u / 2, 0, u / 2);
     g.addColorStop(0, col.light); g.addColorStop(1, col.fill);
     ctx.fillStyle = g; ctx.fill();
+    // 石块预览: 两粒深灰麻点
+    if (isStone) {
+      ctx.fillStyle = 'rgba(75,85,99,0.55)';
+      const r = u * 0.08;
+      ctx.beginPath(); ctx.arc(-u * 0.18, -u * 0.05, r, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(u * 0.12, u * 0.15, r * 0.8, 0, Math.PI * 2); ctx.fill();
+    }
   }
 }
