@@ -1,10 +1,11 @@
 // ============================================================
-//  env.js — 强化学习 MDP 接口 (依新规则)
-//  Action  : 离散 4 维 (MOVE_LEFT/RIGHT/ROTATE_CW/HARD_DROP=释放)
+//  env.js — 强化学习 MDP 接口 (接触触发模型)
+//  Action  : 离散 5 维 (MOVE_LEFT/RIGHT/ROTATE_CW/SOFT_DROP/HARD_DROP)
 //  Observation : Option A (heightmap) + Option C (current/next/刚体向量)
-//  Reward  : §4.3 step +0.01 / place +0.5·h / drop -5 / gameover -10
-//  一步 = 一个物理模拟帧 (与 §4.3 "each simulation step +0.01" 一致)
-//  注: 方块悬挂不自动下落; 只有 HARD_DROP 才会释放并触发物理下落.
+//  Reward  : §6 step +0.01 / place +0.5·h / drop -5 / gameover -10
+//  一步 = 一个物理模拟帧 (与 §6 "each simulation step +0.01" 一致)
+//  注: 方块在 kinematic 阶段逐格自动下落; 接触平台或已放置方块时自动转物理
+//      (非按键触发). SOFT_DROP=下一格, HARD_DROP=瞬间下落到接触.
 // ============================================================
 
 function oneHot(index, size) {

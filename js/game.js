@@ -1,10 +1,11 @@
 // ============================================================
 //  game.js — 游戏主控
 //  状态机: ready -> playing -> (paused) -> over
-//  新规则: 方块生成后悬挂于上方、不自动下落; 玩家仅 ←→↑ 调整,
-//          按空格(释放)后方块转为动态刚体自由下落, 玩家失去控制权.
-//  计分 (AGENT.md §3): S_total = α·T + Σβ·h_i + γ·H²
-//  RL 奖励 (§4.3) 通过 pendingReward 累积, 由 env.flush() 取走
+//  接触触发模型 (AGENT.md §1): kinematic 阶段方块逐格自动下落 (经典俄罗斯方块
+//    控制: ←→↑ / ↓软降 / 空格硬降); 接触平台或已放置方块时就地转为动态刚体,
+//    由物理引擎接管, 玩家失去控制权.
+//  计分 (AGENT.md §6): S_total = α·T + Σβ·h_i + γ·H²
+//  RL 奖励 (§6) 通过 pendingReward 累积, 由 env.flush() 取走
 // ============================================================
 
 const DAS_DELAY = 160;     // 长按首次延迟 (ms)
@@ -22,17 +23,19 @@ class Game {
     this.startTime = 0;
     this.elapsedMs = 0;
     this.nextShape = null;
+    this.bag = new PieceBag();    // 7-bag 随机器 (标准俄罗斯方块生成)
 
     this.placeScore = 0;       // S_place 当前值
     this.peakHeight = 0;       // H (历史最高稳定高度)
     this.placedCount = 0;      // N
     this.droppedCount = 0;
 
-    this.keys = { left: false, right: false };
+    this.keys = { left: false, right: false, down: false };
     this.dasTimer = 0;
     this.dasPhase = 'delay';
+    this.dropTimer = 0;          // kinematic 自动下落累计时间
 
-    this.pendingSpawn = false;  // 释放后等待生成区清空再生成下一块
+    this.pendingSpawn = false;  // 接触转物理后, 等待生成区清空再生成下一块
     this.spawnWait = 0;
 
     this.pendingReward = 0;    // 累积 RL 奖励 (env 取走)
@@ -50,13 +53,15 @@ class Game {
     this.lives = MAX_LIVES;
     this.startTime = 0;
     this.elapsedMs = 0;
-    this.nextShape = randomShapeKey();
+    this.bag.reset();
+    this.nextShape = this.bag.next();
     this.placeScore = 0;
     this.peakHeight = 0;
     this.placedCount = 0;
     this.droppedCount = 0;
     this.dasTimer = 0;
     this.dasPhase = 'delay';
+    this.dropTimer = 0;
     this.pendingSpawn = false;
     this.spawnWait = 0;
     this.pendingReward = 0;
@@ -82,11 +87,11 @@ class Game {
     }
   }
 
-  // ---- 生成新活动方块 -----------------------------------------
+  // ---- 生成新活动方块 (kinematic, isStatic) --------------------
   _spawn(initial = false) {
     const body = this.physics.createPiece(this.nextShape, SPAWN_X, SPAWN_Y, 0, true);
     this.physics.setActive(body);
-    this.nextShape = randomShapeKey();
+    this.nextShape = this.bag.next();
     // 顶部锁死检测: 生成位置已与堆叠重叠 -> 游戏结束
     if (this.physics.collidesAt(body, body.position, body.angle)) {
       this._gameOver('LOCKOUT');
@@ -94,7 +99,7 @@ class Game {
   }
 
   // ---- 玩家/AI 动作 (立即生效) --------------------------------
-  // 新规则仅 4 个有效动作: 左移 / 右移 / 旋转 / 释放(空格)
+  // 5 个动作: 左移 / 右移 / 旋转 / 软降(↓) / 硬降(空格)
   applyAction(action) {
     if (this.state !== 'playing') return;
     const p = this.physics;
@@ -102,8 +107,9 @@ class Game {
       case ACTION.MOVE_LEFT:   this._moveHorizontal(-1); break;
       case ACTION.MOVE_RIGHT:  this._moveHorizontal(1); break;
       case ACTION.ROTATE_CW:   p.tryRotate(); break;
-      case ACTION.HARD_DROP:   this._releaseAndSpawn(); break;  // 释放 -> 物理接管
-      default: break;   // NOOP / 未知: 什么都不做 (悬挂方块静止等待)
+      case ACTION.SOFT_DROP:   this._descend(); break;    // 下一格; 接触则转物理
+      case ACTION.HARD_DROP:   this._hardDrop(); break;   // 瞬间下落到接触, 转物理
+      default: break;   // NOOP / 未知: 什么都不做
     }
   }
 
@@ -112,21 +118,50 @@ class Game {
     const b = p.active;
     if (!b) return;
     const nx = b.position.x + dir * CELL;
-    // 允许悬挂于平台外, 但活动方块质心保留在画布内
+    // 允许悬于平台外, 但活动方块质心保留在画布内
     const margin = CELL * 0.5;
     if (nx < margin || nx > CANVAS_W - margin) return;
     p.tryMove(dir * CELL, 0);
   }
 
-  // ---- 释放当前方块 ------------------------------------------
-  // 就地把活动方块转为动态刚体(开始自由下落). 不立即生成下一块:
-  // 待已释放方块离开顶部生成区后再生成, 避免与新生成方块重叠卡死.
-  _releaseAndSpawn() {
+  // ---- 接触触发: 把当前 kinematic 方块就地转为动态刚体 ----------
+  // 在最后一个不重叠位置 (canDescend() 为 false) 调用. 不立即生成下一块:
+  // 待已转物理的方块离开顶部生成区后再生成, 避免与新生成方块重叠卡死.
+  _lockActive() {
     const now = performance.now();
     const body = this.physics.releaseActive(now);
     if (body) this.placedCount++;
     this.pendingSpawn = true;
     this.spawnWait = 0;
+    this.dropTimer = 0;
+  }
+
+  // ---- 精确锁定: 先粗扫到 cell 网格, 再精扫到接触前最后位置, 再转物理
+  // 消除最大 1 格的空隙, 使落地几乎无冲量 -> 不与下方方块睡眠冻结成重叠.
+  _lockAtContact() {
+    const p = this.physics;
+    const y = p.contactY();
+    if (y != null) p.snapActiveToY(y);
+    this._lockActive();
+  }
+
+  // ---- 下移 1 格 (自动下落 / 软降) ----------------------------
+  // 能下移则下移; 若下移后即接触, 精确锁定转物理 (无锁定延迟, 符合 §1 接触触发).
+  _descend() {
+    const p = this.physics;
+    if (!p.active) return;
+    if (!p.canDescend()) { this._lockAtContact(); return; }   // 已接触 -> 精确锁定
+    p.tryMove(0, CELL);
+    if (!p.canDescend()) this._lockAtContact();               // 刚到位即接触 -> 精确锁定
+  }
+
+  // ---- 硬降: 瞬间下落到接触, 精确锁定转物理 --------------------
+  _hardDrop() {
+    const p = this.physics;
+    if (!p.active) return;
+    let guard = 0;
+    while (p.canDescend() && guard++ < ROWS + 4) p.tryMove(0, CELL);
+    this._lockAtContact();
   }
 
   // ---- (内部) 生成下一块 --------------------------------------
@@ -135,6 +170,7 @@ class Game {
     this.renderer.drawNext(this.nextShape);
     this.pendingSpawn = false;
     this.spawnWait = 0;
+    this.dropTimer = 0;
   }
 
   // ---- 单步模拟 (人类每帧 / env 每步都调用) -------------------
@@ -146,18 +182,27 @@ class Game {
     this.elapsedMs += dtMs;
     const p = this.physics;
 
-    // 物理: 推进已释放的动态刚体 (悬挂中的活动方块是静态的, 不受重力)
+    // 物理: 推进已转物理的动态刚体 (kinematic 活动方块是静态的, 不受重力)
     p.step(dtMs);
 
-    // 释放后: 等待生成区清空再生成下一块 (避免重叠卡死)
-    if (this.pendingSpawn && !p.active) {
+    // kinematic 阶段: 经典俄罗斯方块式自动下落. 活动方块按间隔逐格下移;
+    // 接触平台或已放置方块时由 _descend 内部就地转物理. 无活动方块时
+    // 走生成区清空检查, 生成下一块.
+    if (p.active) {
+      this.dropTimer += dtMs;
+      const interval = this.keys.down ? SOFT_DROP_INTERVAL_MS : DROP_INTERVAL_MS;
+      if (this.dropTimer >= interval) {
+        this.dropTimer -= interval;
+        this._descend();
+      }
+    } else if (this.pendingSpawn) {
       this.spawnWait++;
       if (p.isSpawnClear() || this.spawnWait > SPAWN_FORCE_FRAMES) {
         this._doSpawn();
       }
     }
 
-    // 长按 ←/→ 自动重复 (悬挂方块仍可被移动)
+    // 长按 ←/→ 自动重复 (kinematic 方块仍可被移动)
     this._handleDAS(dtMs);
 
     // 稳定 -> 放置奖励
@@ -258,7 +303,7 @@ class Game {
     if (this.onUpdate) this.onUpdate(this.scoreInfo());
   }
 
-  // ---- 得分信息 (§3) ------------------------------------------
+  // ---- 得分信息 (§6) ------------------------------------------
   get timeSeconds() { return this.elapsedMs / 1000; }
   get sTime() { return ALPHA * this.timeSeconds; }
   get sPlace() { return this.placeScore; }

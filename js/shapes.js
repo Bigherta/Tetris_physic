@@ -41,9 +41,23 @@ function rotateCW(cells) {
   return cells.map(([x, y]) => [-y, x]);
 }
 
-// 随机方块 key (7-bag 可选; 这里用均匀随机, 已足够)
-function randomShapeKey() {
-  return SHAPE_KEYS[(Math.random() * SHAPE_KEYS.length) | 0];
+// 7-bag 随机器 (标准俄罗斯方块): 把 7 种方块打乱成一袋, 依次发放; 袋空后重新洗牌.
+// 保证每 7 块内每种各出现一次, 避免连续生成相同方块.
+class PieceBag {
+  constructor() { this.bag = []; this._refill(); }
+  _refill() {
+    this.bag = SHAPE_KEYS.slice();
+    // Fisher-Yates 洗牌
+    for (let i = this.bag.length - 1; i > 0; i--) {
+      const j = (Math.random() * (i + 1)) | 0;
+      const t = this.bag[i]; this.bag[i] = this.bag[j]; this.bag[j] = t;
+    }
+  }
+  next() {
+    if (this.bag.length === 0) this._refill();
+    return this.bag.pop();
+  }
+  reset() { this.bag = []; this._refill(); }
 }
 
 // 方块包围盒 (单位), 用于碰撞/渲染参考

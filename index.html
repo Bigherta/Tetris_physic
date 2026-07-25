@@ -14,10 +14,10 @@
     <canvas id="canvas" width="540" height="720"></canvas>
     <div id="overlay">
       <h1>PHYSICS TETRIS</h1>
-      <div class="sub">真实刚体物理 · 重心平衡 · 力矩倾覆 · 悬挂瞄准后释放</div>
+      <div class="sub">真实刚体物理 · 重心平衡 · 力矩倾覆 · 接触即转物理</div>
       <div class="keys">
-        方块悬挂于上方 <b>不自动下落</b><br>
-        <b>← →</b> 移动 &nbsp; <b>↑</b> 旋转 &nbsp; <b>空格</b> 释放下落<br>
+        方块逐格下落 <b>接触即转物理</b><br>
+        <b>← →</b> 移动 &nbsp; <b>↑</b> 旋转 &nbsp; <b>↓</b> 软降 &nbsp; <b>空格</b> 硬降<br>
         <b>P</b> 暂停 &nbsp; <b>R</b> 重开
       </div>
       <div class="break" id="overlayBreak">
@@ -55,21 +55,11 @@
     </div>
 
     <div class="card">
-      <h3>模式 / Mode</h3>
+      <h3>游戏 / Game</h3>
       <div class="btn-row">
-        <button class="btn active" id="mode-human">人类</button>
-        <button class="btn" id="mode-heuristic">AI·贪心</button>
-        <button class="btn" id="mode-random">AI·随机</button>
-      </div>
-      <div class="btn-row" style="margin-top:6px">
         <button class="btn" id="btn-start">开始</button>
         <button class="btn" id="btn-pause">暂停</button>
         <button class="btn" id="btn-reset">重开</button>
-      </div>
-      <div class="slider-row">
-        <span class="small muted">AI 速度</span>
-        <input type="range" id="ai-speed" min="20" max="300" value="90" step="5">
-        <span class="val" id="ai-speed-val">90ms</span>
       </div>
     </div>
 
@@ -77,7 +67,7 @@
       <h3>操作 / Controls</h3>
       <div class="help">
         <kbd>←</kbd><kbd>→</kbd> 移动 · <kbd>↑</kbd> 旋转<br>
-        <kbd>Space</kbd> 释放下落 (转入物理)<br>
+        <kbd>↓</kbd> 软降 · <kbd>Space</kbd> 硬降 (接触转物理)<br>
         <kbd>P</kbd> 暂停 · <kbd>R</kbd> 重开
       </div>
     </div>
@@ -85,8 +75,8 @@
     <div class="card">
       <h3>Agent 接口 (MDP)</h3>
       <div class="help">
-        <span class="tag">动作空间 4</span>
-        LEFT / RIGHT / ROT / DROP(释放)<br>
+        <span class="tag">动作空间 5</span>
+        LEFT / RIGHT / ROT / SOFT / HARD<br>
         <span class="tag purple">观测</span> heightmap(10) + 方块向量<br>
         <span class="tag purple">奖励</span> step+0.01 · place+0.5h · drop-5 · over-10<br>
         打开控制台: <code>env</code> 可直接 reset/step
@@ -105,7 +95,6 @@
 <script src="js/renderer.js"></script>
 <script src="js/game.js"></script>
 <script src="js/env.js"></script>
-<script src="js/agent.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

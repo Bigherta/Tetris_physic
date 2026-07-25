@@ -12,6 +12,11 @@ class PhysicsWorld {
     this.engine.gravity.y = GRAVITY_Y;
     this.engine.gravity.scale = GRAVITY_SCALE;
     this.engine.enableSleeping = SLEEPING_ENABLED;
+    // 提高求解器迭代数: 默认 6/4/2 不足以稳定"高瘦"刚体 (如竖立的 I 块),
+    // 会产生接触点交替穿透 -> 左右晃动 -> 最终误倒. 提到 12/8/3 让接触充分解算.
+    this.engine.positionIterations = 12;
+    this.engine.velocityIterations = 8;
+    this.engine.constraintIterations = 3;
     this.world = this.engine.world;
 
     this.platform = null;
@@ -48,7 +53,8 @@ class PhysicsWorld {
         friction: BLOCK_FRICTION,
         frictionStatic: BLOCK_FRICTION_STATIC,
         restitution: BLOCK_RESTITUTION,
-        chamfer: { radius: 2 },
+        // 不加 chamfer: 倒角会让单元格角点变圆, 竖立 I 块以此圆角为支点
+        // 产生微抖动并被放大成倾倒. 平直面接触更稳定 (视觉圆角由 renderer 负责).
       })
     );
     const body = Body.create({
@@ -96,6 +102,40 @@ class PhysicsWorld {
     return hit;
   }
 
+  // ---- 活动方块能否再下移 1 格 (不实际移动) -------------------
+  // 用于自动下落 / 软降: 返回 false 表示下一格即接触平台或已放置方块,
+  // 调用方应在当前位置 (最后一个不重叠位置) 调用 releaseActive 就地转物理.
+  canDescend() {
+    const b = this.active;
+    if (!b) return false;
+    return !this.collidesAt(b, { x: b.position.x, y: b.position.y + CELL }, b.angle);
+  }
+
+  // ---- 下落到接触前的精确 Y (最后一个不重叠位置) ---------------
+  // 先 CELL 粗扫, 再 LOCK_FINE_STEP 精扫. 锁定时把方块置于该 Y, 几乎无空隙,
+  // 落地无冲量, 避免与下方方块因冲击穿透 + 休眠冻结而相互重叠.
+  // 若一路扫到画布底仍无接触 (方块整体悬空于深渊), 返回接近 DROP_Y 的 Y,
+  // 调用方锁定后即转为动态刚体坠入深渊, 由 getDropped 处理.
+  contactY() {
+    const b = this.active;
+    if (!b) return null;
+    const x = b.position.x, ang = b.angle;
+    let y = b.position.y;
+    while (y < DROP_Y && !this.collidesAt(b, { x, y: y + CELL }, ang)) y += CELL;
+    for (let i = 0; i < CELL / LOCK_FINE_STEP; i++) {
+      if (y < DROP_Y && !this.collidesAt(b, { x, y: y + LOCK_FINE_STEP }, ang)) y += LOCK_FINE_STEP;
+      else break;
+    }
+    return y;
+  }
+
+  // ---- 把活动方块就地设到指定 Y (不做碰撞检查, 调用方须保证安全) --
+  snapActiveToY(y) {
+    const b = this.active;
+    if (!b) return;
+    Body.setPosition(b, { x: b.position.x, y });
+  }
+
   // ---- 活动方块尝试平移; 成功返回 true --------------------------
   tryMove(dx, dy) {
     const b = this.active;
@@ -127,15 +167,15 @@ class PhysicsWorld {
     return false;
   }
 
-  // ---- 释放当前活动方块: 在当前位置转为动态刚体 ----------------
-  // 新规则: 不再预先下扫贴合, 而是就地解锁为动态刚体,
-  //         由重力接管其自由下落, 玩家从此失去对该方块的控制权.
-  // 返回该 body 供游戏层处理稳定/掉落/计分.
+  // ---- 接触触发: 把当前 kinematic 方块就地转为动态刚体 ----------
+  // 当 canDescend() 为 false (下一格接触平台或已放置方块) 时由游戏层调用:
+  // 方块在当前位置 (最后一个不重叠位置) 转为动态刚体, 由重力 / 摩擦 / 力矩 /
+  // 质心接管, 玩家从此失去对该方块的控制权. 返回该 body 供稳定/掉落/计分.
   releaseActive(now) {
     const b = this.active;
     if (!b) return null;
     Body.setStatic(b, false);
-    // 关键: 悬挂期间 enableSleeping 会把静态刚体置为休眠, setStatic 不会自动唤醒;
+    // 关键: kinematic 阶段 enableSleeping 会把静态刚体置为休眠, setStatic 不会自动唤醒;
     // 必须显式唤醒, 否则 Matter 不会对其施加重力 -> 方块卡在顶部不下落.
     Sleeping.set(b, false);
     b.isSleeping = false;
@@ -193,7 +233,7 @@ class PhysicsWorld {
   }
 
   // ---- 当前稳定刚体, 用于高度测量 -----------------------------
-  // 注意: 不能仅凭瞬时低速判定, 否则刚释放(重力尚未加速)的方块会被误判
+  // 注意: 不能仅凭瞬时低速判定, 否则刚转物理(重力尚未加速)的方块会被误判
   //       为稳定, 把高度虚报到生成位置. 这里要求 休眠 或 持续低速达阈值帧.
   stableBodies() {
     return this.placed.filter(b => b.isSleeping || b.stableFrames >= STABLE_FRAMES);

@@ -1,9 +1,9 @@
 // ============================================================
 //  constants.js — 全局配置与枚举
 //  对应 AGENT.md:
-//    §2 平台宽 10 单位, 3 条命, Y<0 视为掉落
-//    §3 计分: S = α·T + Σβ·h_i + γ·H²   (α=1, β=5, γ=10)
-//    §4 动作空间 size=5, RL 奖励 (step+0.01 / place+0.5·h / drop-5 / over-10)
+//    §7 平台宽 10 单位, 3 条命, Y 越界视为掉落
+//    §6 计分: S = α·T + Σβ·h_i + γ·H²   (α=1, β=5, γ=10); RL 奖励 (step+0.01 / place+0.5·h / drop-5 / over-10)
+//    §9 动作空间 size=5 (LEFT/RIGHT/ROT/SOFT/HARD)
 // ============================================================
 
 // 画布 / 网格 ------------------------------------------------
@@ -21,7 +21,7 @@ const PLATFORM_TOP_Y = PLATFORM_TOP_ROW * CELL; // 平台顶面 y 坐标 (px)
 const PLATFORM_HEIGHT = 3 * CELL;               // 平台厚度 (px)
 
 // 物理 -------------------------------------------------------
-const GRAVITY_Y = 1.4;        // Matter 引擎重力 (y 向下); 偏大, 使释放后的自由下落更干脆
+const GRAVITY_Y = 1.4;        // Matter 引擎重力 (y 向下); 偏大, 使转物理后的自由下落更干脆
 const GRAVITY_SCALE = 0.0014; // 重力缩放 (与 density 配合)
 const BLOCK_DENSITY = 0.002;  // 方块密度 (影响质量 -> 影响稳定性)
 const BLOCK_FRICTION = 0.9;   // 方块间摩擦 (高, 防止轻易滑落)
@@ -31,8 +31,12 @@ const PLATFORM_FRICTION = 1.0;  // 平台表面高摩擦 (§2.1)
 const SLEEPING_ENABLED = true;
 
 // 节奏 -------------------------------------------------------
-// 新规则: 方块生成后悬挂于上方、不自动下落; 玩家用 ←→↑ 调整, 按空格释放.
-// 因此不再有"自动下落间隔", 只有物理步长与落点预览的精细扫描步长.
+// 接触触发模型 (AGENT.md §1): kinematic 阶段方块逐格自动下落 (经典俄罗斯方块).
+//   每 DROP_INTERVAL_MS 自动下移 1 格; 按住 ↓ (SOFT_DROP) 间隔缩短为
+//   SOFT_DROP_INTERVAL_MS; HARD_DROP 瞬间下落到接触.
+//   接触平台或已放置方块时, 方块就地转为动态刚体, 交由物理引擎接管.
+const DROP_INTERVAL_MS = 500;       // 自然下落间隔
+const SOFT_DROP_INTERVAL_MS = DROP_INTERVAL_MS / 2;  // 软降 = 2× 自动下落速度
 const LOCK_FINE_STEP = 4;          // 落点预览精细下扫步长 (px)
 const PHYSICS_HZ = 60;
 const PHYSICS_DT = 1000 / PHYSICS_HZ;
@@ -42,10 +46,10 @@ const MAX_LIVES = 3;
 // 掉落判定: 方块最低点越过画布底 + 边距 即视为掉入深渊 (等价于 Y<0)
 const DROP_Y = CANVAS_H + CELL * 1.0;
 
-// 生成位置 (新规则: 方块悬挂于此, 不自动下落) ----------------
+// 生成位置 (方块生成于此, kinematic 阶段逐格自动下落) ----------
 const SPAWN_X = (PLATFORM_LEFT_COL + PLATFORM_WIDTH / 2) * CELL;
 const SPAWN_Y = 2 * CELL;
-// 生成区: 方块释放后须离开此区域, 下一块才生成 (避免与新生成方块重叠卡死)
+// 生成区: 方块转物理后须离开此区域, 下一块才生成 (避免与新生成方块重叠卡死)
 const SPAWN_CLEAR_X = 2.5 * CELL;   // 生成区半宽
 const SPAWN_CLEAR_Y = 1.5 * CELL;   // 生成区下界偏移 (相对 SPAWN_Y)
 const SPAWN_FORCE_FRAMES = 180;     // 等待超过此帧则强制生成 (防软锁)
@@ -67,18 +71,19 @@ const STABLE_OMEGA = 0.05;    // 角速度低于此视为接近静止
 const STABLE_FRAMES = 25;     // 连续静止帧数 -> 判定稳定
 const SLEEP_BONUS = true;     // Matter 休眠也视作稳定
 
-// 动作空间 (依新规则) --------------------------------------
-// 方块悬挂于上方, 玩家仅可 ←→↑ 调整, 按空格释放使其落入物理世界.
-// 标准动作空间 = 4: LEFT / RIGHT / ROTATE / DROP(释放)
+// 动作空间 (接触触发模型) -----------------------------------
+// kinematic 阶段: 经典俄罗斯方块控制. 接触平台/已放置方块时自动转物理 (非按键触发).
+// 标准动作空间 = 5: LEFT / RIGHT / ROTATE / SOFT_DROP / HARD_DROP
 const ACTION = {
   MOVE_LEFT: 0,
   MOVE_RIGHT: 1,
   ROTATE_CW: 2,
-  HARD_DROP: 3,      // = 释放: 方块转为动态刚体, 开始自由下落
+  SOFT_DROP: 3,      // 下一格 (加速下落); 接触则转物理
+  HARD_DROP: 4,      // 瞬间下落到接触, 立即转物理
   NOOP: 99,          // 内部哨兵: 无活动方块时"什么都不做", 不属于标准动作空间
 };
-const ACTION_NAMES = ['LEFT', 'RIGHT', 'ROT', 'DROP'];
-const ACTION_SPACE_SIZE = 4;
+const ACTION_NAMES = ['LEFT', 'RIGHT', 'ROT', 'SOFT', 'HARD'];
+const ACTION_SPACE_SIZE = 5;
 
 // 颜色 -------------------------------------------------------
 const COLORS = {

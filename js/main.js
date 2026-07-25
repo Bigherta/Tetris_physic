@@ -1,5 +1,6 @@
 // ============================================================
-//  main.js — 启动 / 主循环 / 输入 / 模式切换 / HUD
+//  main.js — 启动 / 主循环 / 输入 / HUD
+//  仅人类游玩; RL 通过浏览器控制台的 env.reset/step 驱动 (见 env.js)
 // ============================================================
 
 (function () {
@@ -11,13 +12,7 @@
 
   // ---- 游戏与环境 ----
   const game = new Game(canvas, nextCanvas);
-  const env = new TetrisEnv(game);
-
-  // 模式
-  let mode = 'human';                 // 'human' | 'heuristic' | 'random'
-  let agent = null;
-  let aiInterval = 90;                 // ms / 决策
-  let aiAccum = 0;
+  const env = new TetrisEnv(game);   // 控制台 RL 接口 (不参与画面自动游玩)
 
   // ---- HUD 渲染 ----
   function renderLives(lives) {
@@ -75,7 +70,7 @@
       game.start();
       hideOverlay();
     } else if (game.state === 'paused') {
-      game.pause(); // 切回 playing
+      game.pause();
       hideOverlay();
     }
   }
@@ -102,43 +97,20 @@
   $('btn-pause').addEventListener('click', togglePause);
   $('btn-reset').addEventListener('click', resetGame);
 
-  // ---- 模式切换 ----
-  function setMode(m) {
-    mode = m;
-    ['human', 'heuristic', 'random'].forEach(k =>
-      $('mode-' + k).classList.toggle('active', k === m));
-    if (m === 'human') agent = null;
-    else if (m === 'heuristic') agent = new HeuristicAgent();
-    else if (m === 'random') agent = new RandomAgent();
-    aiAccum = 0;
-    // 切到 AI 时若处于就绪态, 自动开始
-    if (agent && (game.state === 'ready')) startGame();
-  }
-  $('mode-human').addEventListener('click', () => setMode('human'));
-  $('mode-heuristic').addEventListener('click', () => setMode('heuristic'));
-  $('mode-random').addEventListener('click', () => setMode('random'));
-
-  // AI 速度滑块
-  const speedSlider = $('ai-speed');
-  speedSlider.addEventListener('input', () => {
-    aiInterval = +speedSlider.value;
-    $('ai-speed-val').textContent = aiInterval + 'ms';
-  });
-
   // ---- 键盘输入 ----
   window.addEventListener('keydown', (e) => {
     const k = e.key;
     // 任意键开始
     if (game.state === 'ready' && !e.repeat) {
       startGame();
-      if (['ArrowLeft','ArrowRight','ArrowUp',' '].includes(k)) e.preventDefault();
+      if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(k)) e.preventDefault();
       return;
     }
     if (k === 'p' || k === 'P') { togglePause(); e.preventDefault(); return; }
     if (k === 'r' || k === 'R') { resetGame(); e.preventDefault(); return; }
     if (game.state !== 'playing') return;
 
-    // 新规则: 仅 ← → ↑ 调整悬挂方块, 空格 释放 (无软降)
+    // 接触触发模型: ← → ↑ 移动/旋转, ↓ 软降 (可长按加速), 空格 硬降
     switch (k) {
       case 'ArrowLeft':
         if (!e.repeat) game.applyAction(ACTION.MOVE_LEFT);
@@ -149,8 +121,11 @@
       case 'ArrowUp':
         if (!e.repeat) game.applyAction(ACTION.ROTATE_CW);
         e.preventDefault(); break;
+      case 'ArrowDown':
+        if (!e.repeat) game.applyAction(ACTION.SOFT_DROP);   // 立即下一格
+        game.keys.down = true; e.preventDefault(); break;
       case ' ':
-        if (!e.repeat) game.applyAction(ACTION.HARD_DROP);   // 释放 -> 物理接管
+        if (!e.repeat) game.applyAction(ACTION.HARD_DROP);    // 瞬间下落到接触 -> 物理
         e.preventDefault(); break;
     }
   });
@@ -158,6 +133,7 @@
     switch (e.key) {
       case 'ArrowLeft': game.keys.left = false; break;
       case 'ArrowRight': game.keys.right = false; break;
+      case 'ArrowDown': game.keys.down = false; break;
     }
   });
 
@@ -168,23 +144,7 @@
     last = now;
     if (dt > 50) dt = 50;
 
-    if (game.state === 'playing') {
-      if (mode === 'human' || !agent) {
-        game.update(dt);
-      } else {
-        // AI: 每 aiInterval ms 决策一次, 其间正常推进物理 (累积奖励, 下次 step 刷新)
-        aiAccum += dt;
-        if (aiAccum >= aiInterval) {
-          aiAccum -= aiInterval;
-          const obs = env.getObservation();
-          const info = game.scoreInfo();
-          const a = agent.act(obs, info);
-          env.step(a);
-        } else {
-          game.update(dt);
-        }
-      }
-    }
+    if (game.state === 'playing') game.update(dt);
     game.render();
     requestAnimationFrame(loop);
   }
@@ -194,9 +154,7 @@
   window.game = game;
   window.env = env;
   window.ACTION = ACTION;
-  window.HeuristicAgent = HeuristicAgent;
-  window.RandomAgent = RandomAgent;
   console.log('%cPhysics Tetris 已就绪', 'color:#22d3ee;font-weight:bold');
-  console.log('  人类: 方向键 + 空格   |   AI: 右侧切换模式');
-  console.log('  控制台可用: env.reset() -> env.step(ACTION.HARD_DROP)  (window.ACTION)');
+  console.log('  操作: ←→↑ 移动/旋转 · ↓ 软降 · 空格 硬降 · P 暂停 · R 重开');
+  console.log('  控制台 RL: env.reset() -> env.step(ACTION.HARD_DROP)  (window.ACTION)');
 })();
