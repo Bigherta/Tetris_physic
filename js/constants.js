@@ -38,6 +38,17 @@ const SLEEPING_ENABLED = true;
 const DROP_INTERVAL_MS = 500;       // 自然下落间隔
 const SOFT_DROP_INTERVAL_MS = DROP_INTERVAL_MS / 2;  // 软降 = 2× 自动下落速度
 const LOCK_FINE_STEP = 4;          // 落点预览精细下扫步长 (px)
+
+// 落地吸附真实化 (§1 接触触发) -----------------------------------
+// 旧实现把方块精确贴到接触面 (≤LOCK_FINE_STEP 间隙) 且 vy=0, 像被磁铁吸住:
+// 无可见下落 / 无冲击 / 无沉淀. 新实现: 在接触面上方留 LOCK_RELEASE_GAP px,
+// 并按运动学下落速度 (CELL/DROP_INTERVAL_MS ≈ 3.6 px/步) 赋予向下冲击速度,
+// 让方块「最后沉一下」并轻轻冲击堆叠, 视觉与动量都更接近真实.
+// 间隙小到求解器 (12/8/3) 在 RELEASE_NO_SLEEP_FRAMES 窗口内即可解算穿透,
+// 不会冻结成重叠 (这正是当年精确贴面所要规避的 bug 的根因——休眠冻结穿透).
+const LOCK_RELEASE_GAP   = 8;      // 释放时距接触面留的间隙 (px, ~1/4 格)
+const LOCK_IMPACT_VEL    = 3.5;    // 释放时向下冲击速度 (px/步) ≈ 运动学下落速度
+const RELEASE_NO_SLEEP_FRAMES = 20; // 释放后前 N 帧禁止休眠, 让求解器先解算穿透
 const PHYSICS_HZ = 60;
 const PHYSICS_DT = 1000 / PHYSICS_HZ;
 

@@ -25,6 +25,23 @@ class PhysicsWorld {
     this.activeShape = null;
 
     this._buildPlatform();
+
+    // 落地真实化: 释放后的刚体在 RELEASE_NO_SLEEP_FRAMES 帧内禁止休眠.
+    // 否则小间隙+冲击速度造成的微小穿透会被休眠冻结成可见重叠
+    // (这正是当年精确贴面所要规避的 bug). 每次引擎更新后唤醒窗口内的刚体.
+    Events.on(this.engine, 'afterUpdate', () => this._preventEarlySleep());
+  }
+
+  // ---- 唤醒仍在「禁止休眠窗口」内的刚体 ------------------------
+  // noSleepFrames > 0 的刚体: 递减计数; 若被引擎自动休眠则强制唤醒.
+  // 窗口期内让求解器先解算落地穿透, 期满后正常休眠 (不影响稳定/计分).
+  _preventEarlySleep() {
+    for (const b of this.placed) {
+      if (b.noSleepFrames > 0) {
+        b.noSleepFrames--;
+        if (b.isSleeping) Sleeping.set(b, false);
+      }
+    }
   }
 
   // ---- 平台: 居中、静态、高摩擦 ----------------------------------
@@ -77,6 +94,7 @@ class PhysicsWorld {
     body.rewarded = false;       // 是否已发放放置奖励
     body.contribution = 0;       // 该方块对 S_place 的贡献 (β·h)
     body.heightAtReward = 0;
+    body.noSleepFrames = 0;     // 释放后禁止休眠的剩余帧数 (落地真实化)
     return body;
   }
 
@@ -207,6 +225,9 @@ class PhysicsWorld {
     Sleeping.set(b, false);
     b.isSleeping = false;
     b.sleepCounter = 0;
+    // 落地真实化: 接触释放后禁止休眠若干帧, 让求解器先解算落地穿透,
+    // 防止小间隙+冲击造成的微小穿透被休眠冻结成可见重叠.
+    b.noSleepFrames = RELEASE_NO_SLEEP_FRAMES;
     // 重新施加材质 (setStatic 可能重置部分属性)
     b.friction = BLOCK_FRICTION;
     b.frictionStatic = BLOCK_FRICTION_STATIC;

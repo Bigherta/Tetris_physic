@@ -142,13 +142,20 @@ class Game {
     this.dropTimer = 0;
   }
 
-  // ---- 精确锁定: 先粗扫到 cell 网格, 再精扫到接触前最后位置, 再转物理
-  // 消除最大 1 格的空隙, 使落地几乎无冲量 -> 不与下方方块睡眠冻结成重叠.
+  // ---- 精确锁定: 先粗扫到 cell 网格, 再精扫到接触前最后位置 ----------
+  // contactY() 返回接触面 Y (ghost 也用同一值). 落地真实化: 不再精确贴面 + vy=0,
+  // 而是在接触面上方留 LOCK_RELEASE_GAP px, 并赋予向下冲击速度 (≈运动学下落速度),
+  // 让方块「最后沉一下」轻轻冲击堆叠; 配合 releaseActive 的 no-sleep 窗口,
+  // 求解器先解算穿透, 不会冻结成重叠. 间隙小, 冲击温和, 物理感强且无回归.
   _lockAtContact() {
     const p = this.physics;
     const y = p.contactY();
-    if (y != null) p.snapActiveToY(y);
-    this._lockActive();
+    if (y != null) {
+      p.snapActiveToY(y - LOCK_RELEASE_GAP);
+      this._lockActive(0, LOCK_IMPACT_VEL);
+    } else {
+      this._lockActive();
+    }
   }
 
   // ---- 下移 1 格 (自动下落 / 软降) ----------------------------
