@@ -44,7 +44,8 @@ class PhysicsWorld {
   }
 
   // ---- 创建一个复合方块刚体 --------------------------------------
-  // shapeKey: 形状; (px,py): 期望质心位置; angle: 初始角度
+  // shapeKey: 形状; (px,py): 部件生成参考点 (整数倍 CELL, 与半整数偏移配合使方块落于网格格心);
+  //           angle: 初始角度
   createPiece(shapeKey, px, py, angle = 0, isStatic = true) {
     const cells = SHAPES[shapeKey];
     const parts = cells.map(([cx, cy]) =>
@@ -65,8 +66,9 @@ class PhysicsWorld {
       restitution: BLOCK_RESTITUTION,
       label: 'piece:' + shapeKey,
     });
-    // 使质心精确位于 (px,py), 这样旋转/移动都以质心为参考
-    Body.setPosition(body, { x: px, y: py });
+    // Body.create 已据各部件自动算出质心 (body.position = 部件质心), 旋转/平移都以该质心
+    // 为参考 (与真实刚体一致). 各部件在创建时已落于网格格心 (半整数偏移 + 整数倍 CELL),
+    // 故方块整体与游戏网格对齐; 不再用 setPosition 覆盖质心, 以免把方块推离网格.
     Body.setAngle(body, angle);
     body.pieceShape = shapeKey;
     body.pieceColor = COLORS[shapeKey];
@@ -146,27 +148,43 @@ class PhysicsWorld {
     return true;
   }
 
-  // ---- 活动方块在给定偏移处是否会与平台/已放置方块发生碰撞 -----
-  // 用于横移时检测"撞到别的方块" -> 立即释放转物理 (区别于单纯画布边界).
+  // ---- 活动方块按偏移量探测是否碰撞 (不实际移动) ----------------
+  // 仅查询, collidesAt 内部已保存/恢复位置, 不会留下副作用.
   wouldHitBlock(dx, dy) {
     const b = this.active;
     if (!b) return false;
-    const np = { x: b.position.x + dx, y: b.position.y + dy };
-    return this.collidesAt(b, np, b.angle);
+    return this.collidesAt(b, { x: b.position.x + dx, y: b.position.y + dy }, b.angle);
   }
 
-  // ---- 活动方块尝试顺时针旋转 90° (带简易 wall-kick) ------------
+  // ---- 旋转后把方块吸附回网格格心 ----------------------------------
+  // kinematic 阶段是经典俄罗斯方块控制 (非真实刚体旋转): 旋转后再平移
+  // <1 格的修正量, 使每个单元格落回 (col+0.5, row+0.5)×CELL 的格心, 方便嵌合.
+  // 因同一方块各单元格相对位置恒为整数格, 它们旋转后共享同一小数偏移, 一次平移即可全部对齐.
+  _gridSnapOffset(body, angle) {
+    const savedAngle = body.angle;
+    Body.setAngle(body, angle);                 // 绕当前质心旋转 (质心不动, 各部件移动)
+    const p = body.parts.find(p => p !== body);  // 任取一个真实单元格
+    const nx = (Math.round(p.position.x / CELL - 0.5) + 0.5) * CELL;
+    const ny = (Math.round(p.position.y / CELL - 0.5) + 0.5) * CELL;
+    const dx = nx - p.position.x;
+    const dy = ny - p.position.y;
+    Body.setAngle(body, savedAngle);            // 恢复
+    return [dx, dy];
+  }
+
+  // ---- 活动方块尝试顺时针旋转 90° (旋转后吸附网格 + wall-kick) ------
   tryRotate() {
     const b = this.active;
     if (!b) return false;
     const newAngle = b.angle + Math.PI / 2;
+    const [sx, sy] = this._gridSnapOffset(b, newAngle);  // 旋转后到最近格心的修正量
     const kicks = [
       [0, 0], [-CELL, 0], [CELL, 0], [0, -CELL],
       [-2 * CELL, 0], [2 * CELL, 0], [0, -2 * CELL],
       [-CELL, -CELL], [CELL, -CELL],
     ];
     for (const [kx, ky] of kicks) {
-      const np = { x: b.position.x + kx, y: b.position.y + ky };
+      const np = { x: b.position.x + sx + kx, y: b.position.y + sy + ky };
       if (!this.collidesAt(b, np, newAngle)) {
         Body.setPosition(b, np);
         Body.setAngle(b, newAngle);
@@ -180,9 +198,7 @@ class PhysicsWorld {
   // 当 canDescend() 为 false (下一格接触平台或已放置方块) 时由游戏层调用:
   // 方块在当前位置 (最后一个不重叠位置) 转为动态刚体, 由重力 / 摩擦 / 力矩 /
   // 质心接管, 玩家从此失去对该方块的控制权. 返回该 body 供稳定/掉落/计分.
-  // vx (可选): 释放时赋予的水平速度 (px/s), 用于横向碰撞场景下方块以当前横移
-  //           速度撞向相邻方块, 而非从零速开始被重力接管.
-  releaseActive(now, vx = 0) {
+  releaseActive(now, vx = 0, vy = 0) {
     const b = this.active;
     if (!b) return null;
     Body.setStatic(b, false);
@@ -201,8 +217,9 @@ class PhysicsWorld {
       p.frictionStatic = BLOCK_FRICTION_STATIC;
       p.restitution = BLOCK_RESTITUTION;
     }
-    // 赋予初始水平速度 (横向碰撞场景), 让方块以当前横移速度撞向相邻方块.
-    if (vx) Body.setVelocity(b, { x: vx, y: 0 });
+    // 赋予初始水平速度 (横移撞向相邻方块时由 _moveHorizontal 传入).
+    // 必须在唤醒之后, 否则被休眠机制覆盖.
+    if (vx || vy) Body.setVelocity(b, { x: vx, y: vy });
     b.placedAt = now;
     b.stableFrames = 0;
     b.rewarded = false;
