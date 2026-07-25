@@ -103,6 +103,11 @@ class Renderer {
     ctx.setLineDash([]);
   }
 
+  // ---- 掉落危险区 (已停用: 不再绘制红框) -----------------------
+  _drawDangerZones(physics) {
+    // 保留为空实现, 避免其他调用处改动
+  }
+
   // ---- 落点预览 (ghost) ---------------------------------------
   _drawGhost(physics) {
     const b = physics.active;
