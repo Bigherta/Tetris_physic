@@ -30,17 +30,14 @@ This is the desired model — classic-Tetris kinematic descent until contact, th
 - **Single-process browser game.** No backend, no WebSocket, no Python, no Box2D/PyBullet. Game / physics / env / agent / renderer all run in one page in JS.
 - **Physics engine:** Matter.js, vendored at `vendor/matter.min.js` (offline). API is the global `Matter`.
 - **Entry:** `index.html`. Scripts load in **strict order — do not reorder** (globals depend on it):
-  `vendor/matter.min.js` → `js/constants.js` → `shapes.js` → `physics.js` → `renderer.js` → `game.js` → `env.js` → `agent.js` → `main.js`
+  `vendor/matter.min.js` → `js/constants.js` → `shapes.js` → `physics.js` → `renderer.js` → `game.js` → `main.js`
 - **No build step, no `package.json`, no tests, no lint/typecheck config, no CI.** Pure static files.
 
 ## 3. Run / develop
 
 - Open `index.html` directly, or serve: `python3 -m http.server 8000` → http://localhost:8000
 - Edit a JS file → reload the page (no transpile).
-- RL from the browser console: `window.env` / `window.game` / `window.ACTION` are exposed.
-  - `env.reset()` → observation
-  - `env.step(ACTION.X)` → `{ observation, reward, done, info }` (one step = one physics frame)
-  - `env.flatObservation()` → `number[32]`
+- `window.game` / `window.ACTION` are exposed for console debugging (human-only; no RL/agent layer).
 
 ## 4. File responsibilities
 
@@ -50,9 +47,8 @@ This is the desired model — classic-Tetris kinematic descent until contact, th
 | `js/shapes.js` | 7 tetrominoes as cell-offset arrays around COM; `rotateCW`/`centroidOf`; `PieceBag` (standard 7-bag randomizer). |
 | `js/physics.js` | Matter world: platform, `createPiece` (composite body, COM-centered), `collidesAt` (`Query.collides` preview), `tryMove`/`tryRotate` (wall-kick), `releaseActive` (static→dynamic), `getDropped`, `stableBodies`, `heightmap`, `peakStableHeight`. **THE file for the kinematic→dynamic transition.** |
 | `js/renderer.js` | Canvas-only draw, stateless (reads physics+game). Must not compute game state. |
-| `js/game.js` | State machine (ready/playing/paused/over), spawn, `applyAction`, stability→placement reward, drop→life, scoring, DAS auto-repeat. Holds `pendingReward` for env. |
-| `js/env.js` | MDP wrapper over `Game`: `reset`/`step`/`observation`/`flatObservation`. Console RL only (no in-page AI). |
-| `js/main.js` | Boot, `requestAnimationFrame` loop, keyboard, HUD, exposes `window.env/game/ACTION`. |
+| `js/game.js` | State machine (ready/playing/paused/over), spawn, `applyAction`, stability→placement reward, drop→life, scoring, DAS auto-repeat. |
+| `js/main.js` | Boot, `requestAnimationFrame` loop, keyboard, HUD, exposes `window.game/ACTION`. Human-only. |
 
 ## 5. Physics integration (Matter.js gotchas — verified in `physics.js`)
 
@@ -76,8 +72,7 @@ S_total = α·T + Σ β·h_i + γ·H²     (α=1, β=5, γ=10)
   S_place  = Σ β·h_i             — per piece once stable; h_i = COM height above platform (units)
   S_height = γ·H²                 — H = peak stable height (units); quadratic, main score driver
 ```
-- "Stable" = sleeping OR (`|v|<STABLE_SPEED` and `|ω|<STABLE_OMEGA`) for `STABLE_FRAMES` consecutive frames.
-- RL rewards: step `+0.01` · place `+0.5·h` · drop `−5` · gameover `−10`.
+- "Stable" = sleeping OR (`|v|<STABLE_SPEED` and `|ω|<STABLE_OMEGA`) for `STABLE_FRAMES` consecutive frames. (Used internally for placement scoring; no longer surfaced as a red debug frame — see §8.)
 
 ## 7. Life / drop
 
@@ -98,7 +93,10 @@ The previous release-model path (`game._spawn` static hang → `applyAction(HARD
 Verified: a piece left untouched auto-descends and converts on touching the platform with no key pressed; horizontal moves still can't overlap the stack; tall stacks still topple under physics.
 
 Follow-up fixes:
-- **In-page AI removed** — `js/agent.js` deleted (heuristic/random auto-play was too rigid); `main.js` is human-only. Console RL (`window.env`) is unchanged.
+- **RL / agent layer fully removed** — `js/agent.js` (heuristic auto-play) and `js/env.js` (MDP wrapper) are both deleted; `main.js` is human-only. `constants.js` RL rewards (`R_*`), `ACTION_NAMES`/`ACTION_SPACE_SIZE`, and `game.pendingReward`/`flushReward` are gone; `ACTION` is kept only as the keyboard→`applyAction` mapping. `index.html` MDP card removed.
+- **Spawn grid alignment** — all 7 `SHAPES` now use half-integer cell offsets; `createPiece` no longer calls `Body.setPosition` to force the COM to `(px,py)`. `Body.create` auto-computes the COM (= parts' centroid), and because parts are created at `(integer·CELL + half-integer·CELL)` they land exactly on grid-cell centers. `tryRotate` additionally snaps the piece back to grid-cell centers after each 90° turn (kinematic phase = classic-Tetris control, not real-rigid-body rotation), so pieces stay grid-aligned through moves, descent and rotation. Cells stay grid-aligned through `±CELL` moves/`canDescend` so tetrominoes nest cleanly like classic Tetris. (After contact→dynamic, rotation is about the true COM as normal.)
+- **Next-piece preview** — `Renderer._roundRect` now takes the target `ctx` as a parameter; previously it always built the path on the main canvas `ctx` while `_roundRectScaled` filled on `nextCtx`, so the preview cells never rendered (the box appeared blank). Preview now draws correctly.
+- **Danger red-frame hidden** — `Renderer._drawDangerZones` (the red `strokeRect` around unstable/tilting placed bodies) is removed from `draw()` and deleted. `_isStable` in `physics.js` is kept for placement scoring.
 - **Soft drop = 2× auto-drop** — `SOFT_DROP_INTERVAL_MS = DROP_INTERVAL_MS / 2` (was 45ms, far too fast).
 - **Solver stability for tall-narrow pieces** — engine iterations bumped to 12/8/3 and pieces carry **no `chamfer`**, so a vertical I-piece rests on a flat face instead of jittering on a rounded pivot and toppling spuriously.
 - **Stacked-piece overlap** — `_descend`/`_hardDrop` now lock at `contactY()` (fine-scanned exact contact) instead of the cell-aligned Y, so pieces settle with ≤`LOCK_FINE_STEP` gap and no impact-penetration-frozen overlap. Verified: no overlap at lock position; lock Y is the exact contact surface.
@@ -115,8 +113,8 @@ Follow-up fixes:
 - Transition kinematic→dynamic on **first contact** (platform or placed piece), not on a player key.
 - Keep kinematic control behind collision-preview (`Query.collides`); a kinematic piece must never overlap placed bodies.
 - Keep the renderer stateless; all state authority lives in `Game`/`PhysicsWorld`.
-- Keep `env.reset`/`step`/`flatObservation` stable (RL contract).
 - After `Body.setStatic(false)`: always `Sleeping.set(body,false)` + re-apply per-part friction/restitution.
+- Keep `SHAPES` on half-integer offsets (and do **not** re-add `Body.setPosition` in `createPiece`) so spawned pieces stay grid-aligned.
 
 **MUST NOT**
 - Implement physics, collision, or game rules in `renderer.js`.

@@ -25,7 +25,6 @@ class Renderer {
       this._drawBlockBody(physics.active, 1);
     }
     for (const b of physics.placed) this._drawBlockBody(b, 1);
-    this._drawDangerZones(physics);
   }
 
   // ---- 背景 ---------------------------------------------------
@@ -104,20 +103,6 @@ class Renderer {
     ctx.setLineDash([]);
   }
 
-  // ---- 掉落危险区: 标记已倾斜/不稳的刚体 -----------------------
-  _drawDangerZones(physics) {
-    const ctx = this.ctx;
-    for (const b of physics.placed) {
-      const tilt = Math.abs(b.angle % (Math.PI / 2));
-      const unstable = !physics._isStable(b);
-      if (unstable && (tilt > 0.2 || Math.abs(b.angularVelocity) > 0.02)) {
-        ctx.strokeStyle = 'rgba(239,68,68,0.7)';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(b.bounds.min.x, b.bounds.min.y, b.bounds.max.x - b.bounds.min.x, b.bounds.max.y - b.bounds.min.y);
-      }
-    }
-  }
-
   // ---- 落点预览 (ghost) ---------------------------------------
   _drawGhost(physics) {
     const b = physics.active;
@@ -169,11 +154,11 @@ class Renderer {
     ctx.translate(cx, cy);
     ctx.rotate(angle);
     // 外框 (暗)
-    this._roundRect(-size / 2, -size / 2, size, size, 3);
+    this._roundRect(ctx, -size / 2, -size / 2, size, size, 3);
     ctx.fillStyle = col.dark; ctx.fill();
     // 内填充 (主色)
     const inset = 3;
-    this._roundRect(-size / 2 + inset, -size / 2 + inset, size - inset * 2, size - inset * 2, 2);
+    this._roundRect(ctx, -size / 2 + inset, -size / 2 + inset, size - inset * 2, size - inset * 2, 2);
     const g = ctx.createLinearGradient(0, -size / 2, 0, size / 2);
     g.addColorStop(0, col.light);
     g.addColorStop(1, col.fill);
@@ -195,15 +180,14 @@ class Renderer {
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(angle);
-    this._roundRect(-size / 2, -size / 2, size, size, 3);
+    this._roundRect(ctx, -size / 2, -size / 2, size, size, 3);
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.restore();
   }
 
-  _roundRect(x, y, w, h, r) {
-    const ctx = this.ctx;
+  _roundRect(ctx, x, y, w, h, r) {
     ctx.beginPath();
     ctx.moveTo(x + r, y);
     ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -241,10 +225,10 @@ class Renderer {
 
   _roundRectScaled(u, col) {
     const ctx = this.nextCtx;
-    this._roundRect(-u / 2, -u / 2, u, u, 3);
+    this._roundRect(ctx, -u / 2, -u / 2, u, u, 3);
     ctx.fillStyle = col.dark; ctx.fill();
     const inset = 2;
-    this._roundRect(-u / 2 + inset, -u / 2 + inset, u - inset * 2, u - inset * 2, 2);
+    this._roundRect(ctx, -u / 2 + inset, -u / 2 + inset, u - inset * 2, u - inset * 2, 2);
     const g = ctx.createLinearGradient(0, -u / 2, 0, u / 2);
     g.addColorStop(0, col.light); g.addColorStop(1, col.fill);
     ctx.fillStyle = g; ctx.fill();

@@ -1,6 +1,6 @@
 // ============================================================
 //  main.js — 启动 / 主循环 / 输入 / HUD
-//  仅人类游玩; RL 通过浏览器控制台的 env.reset/step 驱动 (见 env.js)
+//  仅人类游玩
 // ============================================================
 
 (function () {
@@ -12,7 +12,6 @@
 
   // ---- 游戏与环境 ----
   const game = new Game(canvas, nextCanvas);
-  const env = new TetrisEnv(game);   // 控制台 RL 接口 (不参与画面自动游玩)
 
   // ---- HUD 渲染 ----
   function renderLives(lives) {
@@ -258,9 +257,7 @@
 
   // ---- 暴露给控制台, 方便 RL 实验 ----
   window.game = game;
-  window.env = env;
   window.ACTION = ACTION;
   console.log('%cPhysics Tetris 已就绪', 'color:#22d3ee;font-weight:bold');
   console.log('  操作: ←→↑ 移动/旋转 · ↓ 软降 · 空格 硬降 · P 暂停 · R 重开');
-  console.log('  控制台 RL: env.reset() -> env.step(ACTION.HARD_DROP)  (window.ACTION)');
 })();

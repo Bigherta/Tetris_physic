@@ -2,8 +2,8 @@
 //  constants.js — 全局配置与枚举
 //  对应 AGENT.md:
 //    §7 平台宽 10 单位, 3 条命, Y 越界视为掉落
-//    §6 计分: S = α·T + Σβ·h_i + γ·H²   (α=1, β=5, γ=10); RL 奖励 (step+0.01 / place+0.5·h / drop-5 / over-10)
-//    §9 动作空间 size=5 (LEFT/RIGHT/ROT/SOFT/HARD)
+//    §6 计分: S = α·T + Σβ·h_i + γ·H²   (α=1, β=5, γ=10)
+//    §9 动作: 5 个 (LEFT/RIGHT/ROT/SOFT/HARD) 用于人类键盘输入映射
 // ============================================================
 
 // 画布 / 网格 ------------------------------------------------
@@ -40,12 +40,6 @@ const SOFT_DROP_INTERVAL_MS = DROP_INTERVAL_MS / 2;  // 软降 = 2× 自动下�
 const LOCK_FINE_STEP = 4;          // 落点预览精细下扫步长 (px)
 const PHYSICS_HZ = 60;
 const PHYSICS_DT = 1000 / PHYSICS_HZ;
-// 悬挂方块的连续横移: 按住 ←/→ 时以恒定像素/秒平滑移动 (非整格跳进).
-const HORIZONTAL_SPEED = 14 * CELL;  // px/s (约 4.7 格/秒)
-const HORIZONTAL_TAP = 0.45 * CELL;  // 单次轻点位移 (按下时立即响应的一小格)
-// Matter.js 的 Body.setVelocity 速度单位是 "px/物理步" 而非 px/s, 因此把横移的
-// px/s 速度换算为 px/步 (用于横向碰撞释放时赋予刚体的初始速度).
-const HORIZONTAL_VEL_PER_STEP = HORIZONTAL_SPEED * PHYSICS_DT / 1000;
 
 // 生命 / 掉落 (§2.3) ----------------------------------------
 const MAX_LIVES = 3;
@@ -65,12 +59,6 @@ const ALPHA = 1;    // S_time = α·T   (每秒 1 分)
 const BETA = 5;      // S_place = Σ β·h_i
 const GAMMA = 10;    // S_height = γ·H²
 
-// RL 奖励 (§4.3) -------------------------------------------
-const R_STEP = 0.01;       // 每步生存奖励
-const R_PLACE_K = 0.5;     // 放置奖励 = 0.5 × h
-const R_DROP = -5.0;       // 掉落惩罚
-const R_GAMEOVER = -10.0;  // 结束惩罚
-
 // 稳定性检测 -----------------------------------------------
 const STABLE_SPEED = 0.7;    // 速度低于此视为"接近静止" (px/帧)
 const STABLE_OMEGA = 0.05;    // 角速度低于此视为接近静止
@@ -79,7 +67,7 @@ const SLEEP_BONUS = true;     // Matter 休眠也视作稳定
 
 // 动作空间 (接触触发模型) -----------------------------------
 // kinematic 阶段: 经典俄罗斯方块控制. 接触平台/已放置方块时自动转物理 (非按键触发).
-// 标准动作空间 = 5: LEFT / RIGHT / ROTATE / SOFT_DROP / HARD_DROP
+// 标准动作 = 5: LEFT / RIGHT / ROTATE / SOFT_DROP / HARD_DROP (用于人类键盘输入映射)
 const ACTION = {
   MOVE_LEFT: 0,
   MOVE_RIGHT: 1,
@@ -88,8 +76,6 @@ const ACTION = {
   HARD_DROP: 4,      // 瞬间下落到接触, 立即转物理
   NOOP: 99,          // 内部哨兵: 无活动方块时"什么都不做", 不属于标准动作空间
 };
-const ACTION_NAMES = ['LEFT', 'RIGHT', 'ROT', 'SOFT', 'HARD'];
-const ACTION_SPACE_SIZE = 5;
 
 // 颜色 -------------------------------------------------------
 const COLORS = {
