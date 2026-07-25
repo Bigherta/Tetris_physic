@@ -25,7 +25,6 @@ class Renderer {
       this._drawBlockBody(physics.active, 1);
     }
     for (const b of physics.placed) this._drawBlockBody(b, 1);
-    this._drawDangerZones(physics);
   }
 
   // ---- 背景 ---------------------------------------------------
@@ -160,11 +159,11 @@ class Renderer {
     ctx.translate(cx, cy);
     ctx.rotate(angle);
     // 外框 (暗)
-    this._roundRect(-size / 2, -size / 2, size, size, 3);
+    this._roundRect(ctx, -size / 2, -size / 2, size, size, 3);
     ctx.fillStyle = col.dark; ctx.fill();
     // 内填充 (主色)
     const inset = 3;
-    this._roundRect(-size / 2 + inset, -size / 2 + inset, size - inset * 2, size - inset * 2, 2);
+    this._roundRect(ctx, -size / 2 + inset, -size / 2 + inset, size - inset * 2, size - inset * 2, 2);
     const g = ctx.createLinearGradient(0, -size / 2, 0, size / 2);
     g.addColorStop(0, col.light);
     g.addColorStop(1, col.fill);
@@ -186,15 +185,14 @@ class Renderer {
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(angle);
-    this._roundRect(-size / 2, -size / 2, size, size, 3);
+    this._roundRect(ctx, -size / 2, -size / 2, size, size, 3);
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.restore();
   }
 
-  _roundRect(x, y, w, h, r, ctx) {
-    ctx = ctx || this.ctx;
+  _roundRect(ctx, x, y, w, h, r) {
     ctx.beginPath();
     ctx.moveTo(x + r, y);
     ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -232,10 +230,10 @@ class Renderer {
 
   _roundRectScaled(u, col) {
     const ctx = this.nextCtx;
-    this._roundRect(-u / 2, -u / 2, u, u, 3, ctx);
+    this._roundRect(ctx, -u / 2, -u / 2, u, u, 3);
     ctx.fillStyle = col.dark; ctx.fill();
     const inset = 2;
-    this._roundRect(-u / 2 + inset, -u / 2 + inset, u - inset * 2, u - inset * 2, 2, ctx);
+    this._roundRect(ctx, -u / 2 + inset, -u / 2 + inset, u - inset * 2, u - inset * 2, 2);
     const g = ctx.createLinearGradient(0, -u / 2, 0, u / 2);
     g.addColorStop(0, col.light); g.addColorStop(1, col.fill);
     ctx.fillStyle = g; ctx.fill();

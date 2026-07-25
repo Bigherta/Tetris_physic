@@ -5,7 +5,6 @@
 //    控制: ←→↑ / ↓软降 / 空格硬降); 接触平台或已放置方块时就地转为动态刚体,
 //    由物理引擎接管, 玩家失去控制权.
 //  计分 (AGENT.md §6): S_total = α·T + Σβ·h_i + γ·H²
-//  RL 奖励 (§6) 通过 pendingReward 累积, 由 env.flush() 取走
 // ============================================================
 
 const DAS_DELAY = 160;     // 长按首次延迟 (ms)
@@ -38,8 +37,6 @@ class Game {
     this.pendingSpawn = false;  // 接触转物理后, 等待生成区清空再生成下一块
     this.spawnWait = 0;
 
-    this.pendingReward = 0;    // 累积 RL 奖励 (env 取走)
-    this.pendingEvents = [];   // 累积事件
     this.onGameOver = null;    // 回调 (main 设置, 用于显示结算)
     this.onUpdate = null;      // 回调 (每帧更新 HUD)
 
@@ -64,8 +61,6 @@ class Game {
     this.dropTimer = 0;
     this.pendingSpawn = false;
     this.spawnWait = 0;
-    this.pendingReward = 0;
-    this.pendingEvents = [];
     this._spawn(true);
     this.renderer.drawNext(this.nextShape);
     if (!silent) this._notify();
@@ -113,11 +108,11 @@ class Game {
     }
   }
 
-  _moveHorizontal(dir, dist = CELL) {
+  _moveHorizontal(dir, dist) {
     const p = this.physics;
     const b = p.active;
     if (!b) return;
-    const nx = b.position.x + dir * dist;
+    const nx = b.position.x + dir * CELL;
     // 允许悬于平台外, 但活动方块质心保留在画布内
     const margin = CELL * 0.5;
     if (nx < margin || nx > CANVAS_W - margin) return;   // 画布边界 -> 仅停下
@@ -128,7 +123,7 @@ class Game {
       const backoff = 0.5;
       p.tryMove(-dir * backoff, 0);
       // 轻点视为瞬时: 用连续横移速度作为冲击速度 (换算为 Matter 的 px/步 单位)
-      this._lockActive(dir * Settings.moveVelPerStep());
+      this._lockActive(dir * Settings.moveVelPerStep(), 0);
       return;
     }
     p.tryMove(dir * dist, 0);
@@ -137,11 +132,10 @@ class Game {
   // ---- 接触触发: 把当前 kinematic 方块就地转为动态刚体 ----------
   // 在最后一个不重叠位置 (canDescend() 为 false) 调用. 不立即生成下一块:
   // 待已转物理的方块离开顶部生成区后再生成, 避免与新生成方块重叠卡死.
-  // vx (可选): 释放时赋予的水平速度 (px/s), 用于横向碰撞场景下方块以当前横移
-  //           速度撞向相邻方块.
-  _lockActive(vx = 0) {
+  // vx/vy: 可选初始线速度 (横移撞向相邻方块时传入).
+  _lockActive(vx = 0, vy = 0) {
     const now = performance.now();
-    const body = this.physics.releaseActive(now, vx);
+    const body = this.physics.releaseActive(now, vx, vy);
     if (body) this.placedCount++;
     this.pendingSpawn = true;
     this.spawnWait = 0;
@@ -225,9 +219,6 @@ class Game {
     const h = p.peakStableHeight();
     if (h > this.peakHeight) this.peakHeight = h;
 
-    // 生存步奖励
-    this._addReward(R_STEP, { type: 'step' });
-
     if (this.lives <= 0) this._gameOver('NOLIVES');
 
     this._notify();
@@ -241,28 +232,20 @@ class Game {
   // 作为初始水平速度赋予刚体, 使其以该速度撞向相邻方块.
   _handleDAS(dt) {
     const left = this.keys.left, right = this.keys.right;
-    if (left === right) return;          // 都没按或都按 -> 不动
+    if (left === right) { this.dasPhase = 'delay'; this.dasTimer = 0; return; }
     const dir = left ? -1 : 1;
-    const p = this.physics;
-    const b = p.active;
-    if (!b) return;
-    const dist = Settings.moveSpeed * (dt / 1000);   // 本帧位移 (px)
-    if (dist <= 0) return;
-    const step = Math.min(dist, CELL * 0.4);
-    let remaining = dist;
-    const margin = CELL * 0.5;
-    while (remaining > 1e-4) {
-      const d = Math.min(remaining, step);
-      const nx = b.position.x + dir * d;
-      if (nx < margin || nx > CANVAS_W - margin) break;   // 画布边界 -> 停下
-      if (p.wouldHitBlock(dir * d, 0)) {                   // 撞别的方块 -> 释放转物理
-        // 回退一小段间隙后释放, 使物理引擎从"接近接触"状态开始解算冲量.
-        p.tryMove(-dir * 0.5, 0);
-        this._lockActive(dir * Settings.moveVelPerStep());  // 以当前横移速度撞击 (px/步)
-        return;
+    this.dasTimer += dt;
+    const dist = Settings.tapDist;
+    if (this.dasPhase === 'delay') {
+      if (this.dasTimer >= DAS_DELAY) {
+        this.dasPhase = 'repeat'; this.dasTimer = 0;
+        this._moveHorizontal(dir, dist);
       }
-      p.tryMove(dir * d, 0);
-      remaining -= d;
+    } else {
+      if (this.dasTimer >= DAS_REPEAT) {
+        this.dasTimer = 0;
+        this._moveHorizontal(dir, dist);
+      }
     }
   }
 
@@ -281,7 +264,6 @@ class Game {
           b.contribution = contrib;
           b.heightAtReward = h;
           this.placeScore += contrib;
-          this._addReward(R_PLACE_K * h, { type: 'place', height: h });
         }
       } else {
         b.stableFrames = 0;
@@ -298,7 +280,6 @@ class Game {
       if (b.rewarded) {
         this.placeScore -= b.contribution;
       }
-      this._addReward(R_DROP, { type: 'drop' });
     }
   }
 
@@ -306,22 +287,8 @@ class Game {
   _gameOver(reason) {
     if (this.state === 'over') return;
     this.state = 'over';
-    this._addReward(R_GAMEOVER, { type: 'gameover', reason });
     this._notify();
     if (this.onGameOver) this.onGameOver(this.scoreInfo(), reason);
-  }
-
-  // ---- 奖励/事件累积 ------------------------------------------
-  _addReward(r, ev) {
-    this.pendingReward += r;
-    if (ev) this.pendingEvents.push(ev);
-  }
-  flushReward() {
-    const r = this.pendingReward;
-    this.pendingReward = 0;
-    const ev = this.pendingEvents;
-    this.pendingEvents = [];
-    return { reward: r, events: ev };
   }
 
   _notify() {
@@ -347,8 +314,6 @@ class Game {
       peak: this.peakHeight,
       placed: this.placedCount,
       dropped: this.droppedCount,
-      next: this.nextShape,
-      active: this.physics.activeShape,
     };
   }
 
