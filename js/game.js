@@ -104,8 +104,8 @@ class Game {
     if (this.state !== 'playing') return;
     const p = this.physics;
     switch (action) {
-      case ACTION.MOVE_LEFT:   this._moveHorizontal(-1); break;
-      case ACTION.MOVE_RIGHT:  this._moveHorizontal(1); break;
+      case ACTION.MOVE_LEFT:   this._moveHorizontal(-1, HORIZONTAL_TAP); break;
+      case ACTION.MOVE_RIGHT:  this._moveHorizontal(1, HORIZONTAL_TAP); break;
       case ACTION.ROTATE_CW:   p.tryRotate(); break;
       case ACTION.SOFT_DROP:   this._descend(); break;    // 下一格; 接触则转物理
       case ACTION.HARD_DROP:   this._hardDrop(); break;   // 瞬间下落到接触, 转物理
@@ -113,23 +113,35 @@ class Game {
     }
   }
 
-  _moveHorizontal(dir) {
+  _moveHorizontal(dir, dist = CELL) {
     const p = this.physics;
     const b = p.active;
     if (!b) return;
-    const nx = b.position.x + dir * CELL;
+    const nx = b.position.x + dir * dist;
     // 允许悬于平台外, 但活动方块质心保留在画布内
     const margin = CELL * 0.5;
-    if (nx < margin || nx > CANVAS_W - margin) return;
-    p.tryMove(dir * CELL, 0);
+    if (nx < margin || nx > CANVAS_W - margin) return;   // 画布边界 -> 仅停下
+    // 撞到别的方块/平台 -> 立即释放, 以当前横移速度撞向相邻方块.
+    // 回退一小段间隙后释放, 使物理引擎从"接近接触"状态开始解算碰撞冲量,
+    // 而非从已重叠状态开始 (后者易穿透).
+    if (p.wouldHitBlock(dir * dist, 0)) {
+      const backoff = 0.5;
+      p.tryMove(-dir * backoff, 0);
+      // 轻点视为瞬时: 用连续横移速度作为冲击速度 (换算为 Matter 的 px/步 单位)
+      this._lockActive(dir * HORIZONTAL_VEL_PER_STEP);
+      return;
+    }
+    p.tryMove(dir * dist, 0);
   }
 
   // ---- 接触触发: 把当前 kinematic 方块就地转为动态刚体 ----------
   // 在最后一个不重叠位置 (canDescend() 为 false) 调用. 不立即生成下一块:
   // 待已转物理的方块离开顶部生成区后再生成, 避免与新生成方块重叠卡死.
-  _lockActive() {
+  // vx (可选): 释放时赋予的水平速度 (px/s), 用于横向碰撞场景下方块以当前横移
+  //           速度撞向相邻方块.
+  _lockActive(vx = 0) {
     const now = performance.now();
-    const body = this.physics.releaseActive(now);
+    const body = this.physics.releaseActive(now, vx);
     if (body) this.placedCount++;
     this.pendingSpawn = true;
     this.spawnWait = 0;
@@ -222,22 +234,35 @@ class Game {
     return { events: [] };
   }
 
-  // ---- 长按重复 ------------------------------------------------
+  // ---- 按住 ←/→ 连续横移 (恒定速度平滑移动, 非整格跳进) ----------
+  // 按下瞬间的小幅响应由 main.js 的 applyAction(MOVE_LEFT/RIGHT) 处理;
+  // 这里负责按住期间的连续推进, 以 HORIZONTAL_SPEED px/s 逐帧位移.
+  // 撞到画布边界 -> 停下; 撞到别的方块/平台 -> 立即释放, 并以当前横移速度
+  // (HORIZONTAL_SPEED) 作为初始水平速度赋予刚体, 使其以该速度撞向相邻方块.
   _handleDAS(dt) {
     const left = this.keys.left, right = this.keys.right;
-    if (left === right) { this.dasPhase = 'delay'; this.dasTimer = 0; return; }
+    if (left === right) return;          // 都没按或都按 -> 不动
     const dir = left ? -1 : 1;
-    this.dasTimer += dt;
-    if (this.dasPhase === 'delay') {
-      if (this.dasTimer >= DAS_DELAY) {
-        this.dasPhase = 'repeat'; this.dasTimer = 0;
-        this._moveHorizontal(dir);
+    const p = this.physics;
+    const b = p.active;
+    if (!b) return;
+    const dist = HORIZONTAL_SPEED * (dt / 1000);   // 本帧位移 (px)
+    if (dist <= 0) return;
+    const step = Math.min(dist, CELL * 0.4);
+    let remaining = dist;
+    const margin = CELL * 0.5;
+    while (remaining > 1e-4) {
+      const d = Math.min(remaining, step);
+      const nx = b.position.x + dir * d;
+      if (nx < margin || nx > CANVAS_W - margin) break;   // 画布边界 -> 停下
+      if (p.wouldHitBlock(dir * d, 0)) {                   // 撞别的方块 -> 释放转物理
+        // 回退一小段间隙后释放, 使物理引擎从"接近接触"状态开始解算冲量.
+        p.tryMove(-dir * 0.5, 0);
+        this._lockActive(dir * HORIZONTAL_VEL_PER_STEP);  // 以当前横移速度撞击 (px/步)
+        return;
       }
-    } else {
-      if (this.dasTimer >= DAS_REPEAT) {
-        this.dasTimer = 0;
-        this._moveHorizontal(dir);
-      }
+      p.tryMove(dir * d, 0);
+      remaining -= d;
     }
   }
 

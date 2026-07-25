@@ -146,6 +146,15 @@ class PhysicsWorld {
     return true;
   }
 
+  // ---- 活动方块在给定偏移处是否会与平台/已放置方块发生碰撞 -----
+  // 用于横移时检测"撞到别的方块" -> 立即释放转物理 (区别于单纯画布边界).
+  wouldHitBlock(dx, dy) {
+    const b = this.active;
+    if (!b) return false;
+    const np = { x: b.position.x + dx, y: b.position.y + dy };
+    return this.collidesAt(b, np, b.angle);
+  }
+
   // ---- 活动方块尝试顺时针旋转 90° (带简易 wall-kick) ------------
   tryRotate() {
     const b = this.active;
@@ -171,7 +180,9 @@ class PhysicsWorld {
   // 当 canDescend() 为 false (下一格接触平台或已放置方块) 时由游戏层调用:
   // 方块在当前位置 (最后一个不重叠位置) 转为动态刚体, 由重力 / 摩擦 / 力矩 /
   // 质心接管, 玩家从此失去对该方块的控制权. 返回该 body 供稳定/掉落/计分.
-  releaseActive(now) {
+  // vx (可选): 释放时赋予的水平速度 (px/s), 用于横向碰撞场景下方块以当前横移
+  //           速度撞向相邻方块, 而非从零速开始被重力接管.
+  releaseActive(now, vx = 0) {
     const b = this.active;
     if (!b) return null;
     Body.setStatic(b, false);
@@ -190,6 +201,8 @@ class PhysicsWorld {
       p.frictionStatic = BLOCK_FRICTION_STATIC;
       p.restitution = BLOCK_RESTITUTION;
     }
+    // 赋予初始水平速度 (横向碰撞场景), 让方块以当前横移速度撞向相邻方块.
+    if (vx) Body.setVelocity(b, { x: vx, y: 0 });
     b.placedAt = now;
     b.stableFrames = 0;
     b.rewarded = false;
