@@ -2,9 +2,9 @@
 
 ## 1. Game Overview
 
-Physics Tetris is a puzzle/strategy game that combines traditional falling-block mechanics with a 2D/3D rigid-body physics engine.
+Physics Tetris is a puzzle/strategy game that combines traditional block-control mechanics with a 2D/3D rigid-body physics engine.
 
-During the falling phase, blocks are controlled kinematically by the player (or an AI Agent). Once a block makes contact with another object, it immediately transitions into a physically simulated rigid body affected by gravity, collisions, friction, and torque.
+A newly spawned block appears at the highest point of the screen and does NOT fall automatically. The player (or an AI Agent) moves and rotates it freely at the top of the screen. When the player presses the drop key (Space), the block immediately becomes a physically simulated rigid body and falls under real physics — affected by gravity, collisions, friction, and torque. During the fall the block cannot be controlled.
 
 The core objective of the game is to build the highest and most stable structure possible while managing a limited number of lives.
 
@@ -16,14 +16,16 @@ The core objective of the game is to build the highest and most stable structure
 
 ### Platform
 
-- The platform is located at the bottom center of the scene.
+- The platform is small and located at the center of the screen (it occupies only a small portion of the screen area, with open space on all sides).
 - Its width is limited to **10 times the side length of a basic block (10 Units)**.
 - The platform surface has a high friction coefficient to prevent bottom-layer blocks from sliding easily.
 
 ### Boundaries
 
 - There are no horizontal walls restricting movement.
-- If a block moves beyond the vertical range of the platform and loses balance, it will fall freely into the abyss.
+- A **ground** (floor) exists below the platform, covering the area **outside** the platform's footprint.
+- If a block loses balance and falls off the platform, it falls onto this surrounding ground.
+- Only when a block lands on (comes to rest on) the ground **outside** the platform is it treated as a dropped block (see §2.3).
 
 ---
 
@@ -31,42 +33,44 @@ The core objective of the game is to build the highest and most stable structure
 
 The game uses a two-state system:
 
-### Kinematic State (Falling State)
+### Hover State (Control State)
 
-A newly generated block is controlled according to classic Tetris rules.
+A newly generated block spawns at the highest point of the screen and **does not fall automatically**. It hovers in place under player/Agent control.
 
 The player or Agent can perform:
 
 - Move left
 - Move right
-- Rotate (90-degree increments)
-- Soft drop
-- Hard drop
+- Rotate clockwise (Up key)
+- Rotate counterclockwise (Down key)
+- Drop (Space) — commit the block to a free fall
+
+There is **no soft drop and no auto-drop**. The block stays at the top until the drop action is issued.
 
 During this state:
 
-- The block is not affected by physics engine gravity.
+- The block is not affected by physics-engine gravity.
 - External collision forces are ignored.
 - The block follows deterministic player/Agent control.
 
 ---
 
-### Dynamic State (Physics State)
+### Dynamic State (Physics / Falling State)
 
-When the block collider makes contact with:
+When the player presses the **Drop** action (Space), the block immediately:
 
-- The platform, or
-- Any previously placed block,
+- Loses all player/Agent control (the block **cannot be operated during the fall**).
+- Transitions into a rigid-body simulation state in its **current position and rotation**.
 
-the block immediately loses player control and transitions into a rigid-body simulation state.
-
-The block is then affected by:
+From this moment the block is treated as a **rigid body** and the falling process follows **real physical rules**. The block is then affected by:
 
 - Gravity
-- Collision forces
+- Collision forces (with the platform and any previously placed blocks)
 - Friction
 - Torque
-- Rigid-body dynamics
+- Rigid-body dynamics (rotation, sliding, tilting, toppling)
+
+Once the block makes contact with the platform or any previously placed block, the same rigid-body simulation continues to govern its rest/stacking behavior.
 
 ---
 
@@ -118,23 +122,21 @@ Lives = 3
 
 ### Drop Detection
 
-A block is considered "dropped" when:
+A block is considered "dropped" **only when** it lands on (comes to rest on) the ground **outside** the platform's footprint.
 
-```
+- A block resting/stacking on the platform or on other placed blocks does **not** count as dropped, even if tilted or partially overhanging.
+- A block that topples off the platform and lands on the surrounding ground counts as dropped.
 
-Y < 0
-
-```
-
-meaning that a placed block falls below the bottom boundary of the screen.
-
-Each dropped block:
+When a block is detected as dropped:
 
 ```
 
 Lives -= 1
+the block disappears (is removed from the scene)
 
 ```
+
+The score contribution previously provided by this block is removed, and the remaining structure may experience disturbances from the collapse.
 
 ---
 
@@ -311,11 +313,14 @@ This creates a significant incentive for high-risk vertical construction.
 
 # 3.3 Penalty Mechanism
 
-When a block falls:
+When a block falls onto the ground **outside** the platform:
 
 - The player loses one life.
+- The block disappears (is removed from the scene).
 - The score contribution previously provided by this block is removed.
 - The physical structure experiences natural disturbances and vibrations caused by the collapse.
+
+A block that remains on the platform or on other placed blocks incurs **no** penalty, regardless of tilt or overhang.
 
 ---
 
@@ -339,11 +344,11 @@ Available actions:
 
 | Action | Description |
 |---|---|
-| MOVE_LEFT | Move block left by 1 Unit |
-| MOVE_RIGHT | Move block right by 1 Unit |
-| ROTATE_CW | Rotate clockwise by 90 degrees |
-| SOFT_DROP | Accelerate downward movement |
-| HARD_DROP | Instantly move to the predicted collision point and activate rigid-body physics |
+| MOVE_LEFT | Move block left by 1 Unit (hover state only) |
+| MOVE_RIGHT | Move block right by 1 Unit (hover state only) |
+| ROTATE_CW | Rotate clockwise by 90 degrees (Up key, hover state only) |
+| ROTATE_CCW | Rotate counterclockwise by 90 degrees (Down key, hover state only) |
+| DROP | Press Space — block becomes a rigid body and falls under real physics; no control is allowed during the fall |
 
 ---
 
@@ -459,7 +464,7 @@ Encourage building at higher locations.
 
 ## Drop Penalty
 
-When a block falls:
+When a block lands on the ground outside the platform (dropped):
 
 ```
 
