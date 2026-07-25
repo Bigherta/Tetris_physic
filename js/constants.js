@@ -40,6 +40,12 @@ const SOFT_DROP_INTERVAL_MS = DROP_INTERVAL_MS / 2;  // 软降 = 2× 自动下�
 const LOCK_FINE_STEP = 4;          // 落点预览精细下扫步长 (px)
 const PHYSICS_HZ = 60;
 const PHYSICS_DT = 1000 / PHYSICS_HZ;
+// 悬挂方块的连续横移: 按住 ←/→ 时以恒定像素/秒平滑移动 (非整格跳进).
+const HORIZONTAL_SPEED = 14 * CELL;  // px/s (约 4.7 格/秒)
+const HORIZONTAL_TAP = 0.45 * CELL;  // 单次轻点位移 (按下时立即响应的一小格)
+// Matter.js 的 Body.setVelocity 速度单位是 "px/物理步" 而非 px/s, 因此把横移的
+// px/s 速度换算为 px/步 (用于横向碰撞释放时赋予刚体的初始速度).
+const HORIZONTAL_VEL_PER_STEP = HORIZONTAL_SPEED * PHYSICS_DT / 1000;
 
 // 生命 / 掉落 (§2.3) ----------------------------------------
 const MAX_LIVES = 3;
