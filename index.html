@@ -9,24 +9,41 @@
 <body>
 <div id="app">
 
-  <!-- ============ 游戏画布 ============ -->
-  <div id="stage">
-    <canvas id="canvas" width="540" height="720"></canvas>
-    <div id="overlay">
-      <h1>PHYSICS TETRIS</h1>
-      <div class="sub">真实刚体物理 · 重心平衡 · 力矩倾覆 · 接触即转物理</div>
-      <div class="keys">
-        方块逐格下落 <b>接触即转物理</b><br>
-        <b>← →</b> 移动 &nbsp; <b>↑</b> 旋转 &nbsp; <b>↓</b> 软降 &nbsp; <b>空格</b> 硬降<br>
-        <b>P</b> 暂停 &nbsp; <b>R</b> 重开
+  <!-- ============ 左栏: 得分栏 + 游戏画布 ============ -->
+  <div id="play-col">
+
+    <!-- 中央上方的得分栏 -->
+    <div id="scoreBar">
+      <div class="score-current">
+        <span class="label">得分</span>
+        <b id="scoreNum">0</b>
       </div>
-      <div class="break" id="overlayBreak">
-        <div class="row"><span class="muted">存活得分 S_time</span><span>α·T (1 分/秒)</span></div>
-        <div class="row"><span class="muted">放置得分 S_place</span><span>Σ 5·h_i</span></div>
-        <div class="row"><span class="muted">高度得分 S_height</span><span>10·H²</span></div>
+      <div class="score-best">
+        <span class="label">最高</span>
+        <b id="scoreBest">0</b>
       </div>
-      <div class="hint">按任意键 / 点击“开始”启动</div>
     </div>
+
+    <!-- 游戏画布 -->
+    <div id="stage">
+      <canvas id="canvas" width="540" height="720"></canvas>
+      <div id="overlay">
+        <h1>PHYSICS TETRIS</h1>
+        <div class="sub">真实刚体物理 · 重心平衡 · 力矩倾覆 · 接触即转物理</div>
+        <div class="keys">
+          方块逐格下落 <b>接触即转物理</b><br>
+          <b>← →</b> 移动 &nbsp; <b>↑</b> 旋转 &nbsp; <b>↓</b> 软降 &nbsp; <b>空格</b> 硬降<br>
+          <b>P</b> 暂停 &nbsp; <b>R</b> 重开
+        </div>
+        <div class="break" id="overlayBreak">
+          <div class="row"><span class="muted">存活得分 S_time</span><span>α·T (1 分/秒)</span></div>
+          <div class="row"><span class="muted">放置得分 S_place</span><span>Σ 5·h_i</span></div>
+          <div class="row"><span class="muted">高度得分 S_height</span><span>10·H²</span></div>
+        </div>
+        <div class="hint">按任意键 / 点击“开始”启动</div>
+      </div>
+    </div>
+
   </div>
 
   <!-- ============ 侧边面板 ============ -->
@@ -36,17 +53,6 @@
       <h3>生命 / Lives</h3>
       <div class="lives" id="lives"></div>
       <div class="small muted" style="margin-top:8px">掉落 3 次即结束 (Y&lt;0)</div>
-    </div>
-
-    <div class="card">
-      <h3>得分 / Score</h3>
-      <div class="score-row"><span>存活 S_time</span><b id="stime">0</b></div>
-      <div class="score-row"><span>放置 S_place</span><b id="splace">0</b></div>
-      <div class="score-row"><span>高度 S_height</span><b id="sheight">0</b></div>
-      <div class="score-row total"><span>总分</span><b id="total">0</b></div>
-      <div class="score-row small"><span>峰值高度 H</span><b id="peak">0</b></div>
-      <div class="score-row small"><span>存活时间</span><b id="time">0.0s</b></div>
-      <div class="score-row small"><span>已放置 / 掉落</span><b><span id="placed">0</span>/<span id="dropped">0</span></b></div>
     </div>
 
     <div class="card">
