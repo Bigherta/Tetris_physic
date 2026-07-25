@@ -112,7 +112,7 @@ class Game {
     const p = this.physics;
     const b = p.active;
     if (!b) return;
-    const nx = b.position.x + dir * CELL;
+    const nx = b.position.x + dir * dist;
     // 允许悬于平台外, 但活动方块质心保留在画布内
     const margin = CELL * 0.5;
     if (nx < margin || nx > CANVAS_W - margin) return;   // 画布边界 -> 仅停下
@@ -232,20 +232,28 @@ class Game {
   // 作为初始水平速度赋予刚体, 使其以该速度撞向相邻方块.
   _handleDAS(dt) {
     const left = this.keys.left, right = this.keys.right;
-    if (left === right) { this.dasPhase = 'delay'; this.dasTimer = 0; return; }
+    if (left === right) return;          // 都没按或都按 -> 不动
     const dir = left ? -1 : 1;
-    this.dasTimer += dt;
-    const dist = Settings.tapDist;
-    if (this.dasPhase === 'delay') {
-      if (this.dasTimer >= DAS_DELAY) {
-        this.dasPhase = 'repeat'; this.dasTimer = 0;
-        this._moveHorizontal(dir, dist);
+    const p = this.physics;
+    const b = p.active;
+    if (!b) return;
+    const dist = Settings.moveSpeed * (dt / 1000);   // 本帧位移 (px)
+    if (dist <= 0) return;
+    // 拆成小步以稳定碰撞检测 (避免一帧穿透)
+    const step = Math.min(dist, CELL * 0.4);
+    let remaining = dist;
+    const margin = CELL * 0.5;
+    while (remaining > 1e-4) {
+      const d = Math.min(remaining, step);
+      const nx = b.position.x + dir * d;
+      if (nx < margin || nx > CANVAS_W - margin) break;   // 画布边界 -> 停下
+      if (p.wouldHitBlock(dir * d, 0)) {                   // 撞别的方块 -> 释放转物理
+        p.tryMove(-dir * 0.5, 0);                           // 回退一小段间隙
+        this._lockActive(dir * Settings.moveVelPerStep()); // 以当前横移速度撞击
+        return;
       }
-    } else {
-      if (this.dasTimer >= DAS_REPEAT) {
-        this.dasTimer = 0;
-        this._moveHorizontal(dir, dist);
-      }
+      p.tryMove(dir * d, 0);
+      remaining -= d;
     }
   }
 
@@ -259,7 +267,7 @@ class Game {
         b.stableFrames++;
         if (b.stableFrames >= STABLE_FRAMES) {
           const h = this.physics.comHeight(b);
-          const contrib = BETA * h;
+          const contrib = BETA * h + DELTA;   // 高度奖励 + 每块固定奖励(块数权重)
           b.rewarded = true;
           b.contribution = contrib;
           b.heightAtReward = h;
