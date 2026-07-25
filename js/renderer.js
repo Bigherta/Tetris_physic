@@ -202,8 +202,8 @@ class Renderer {
     ctx.restore();
   }
 
-  _roundRect(x, y, w, h, r) {
-    const ctx = this.ctx;
+  _roundRect(x, y, w, h, r, ctx) {
+    ctx = ctx || this.ctx;
     ctx.beginPath();
     ctx.moveTo(x + r, y);
     ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -241,10 +241,10 @@ class Renderer {
 
   _roundRectScaled(u, col) {
     const ctx = this.nextCtx;
-    this._roundRect(-u / 2, -u / 2, u, u, 3);
+    this._roundRect(-u / 2, -u / 2, u, u, 3, ctx);
     ctx.fillStyle = col.dark; ctx.fill();
     const inset = 2;
-    this._roundRect(-u / 2 + inset, -u / 2 + inset, u - inset * 2, u - inset * 2, 2);
+    this._roundRect(-u / 2 + inset, -u / 2 + inset, u - inset * 2, u - inset * 2, 2, ctx);
     const g = ctx.createLinearGradient(0, -u / 2, 0, u / 2);
     g.addColorStop(0, col.light); g.addColorStop(1, col.fill);
     ctx.fillStyle = g; ctx.fill();

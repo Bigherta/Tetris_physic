@@ -32,6 +32,43 @@ html, body {
   padding: 16px;
 }
 
+/* ---- 左栏: 得分栏 + 游戏区 (垂直排列, 居中) ---- */
+#play-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ---- 中央上方的得分栏 ---- */
+#scoreBar {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 36px;
+  width: 540px;
+  padding: 14px 24px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.32);
+}
+#scoreBar .score-current { display: flex; align-items: baseline; gap: 12px; }
+#scoreBar .score-best    { display: flex; align-items: baseline; gap: 10px; }
+#scoreBar .label { font-size: 15px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); font-weight: 600; }
+#scoreBar .score-current b {
+  font-size: 52px; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 22px rgba(34,211,238,0.55), 0 0 6px rgba(34,211,238,0.4);
+  font-weight: 800;
+}
+#scoreBar .score-current .label { color: var(--accent); }
+#scoreBar .score-best b {
+  font-size: 30px; line-height: 1; color: var(--warn); font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 14px rgba(249,115,22,0.4);
+  font-weight: 700;
+}
+#scoreBar .score-best .label { color: var(--warn); }
+
 /* ---- 游戏区 ---- */
 #stage {
   position: relative;

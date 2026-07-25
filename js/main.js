@@ -27,27 +27,32 @@
 
   function renderHUD(info) {
     renderLives(info.lives);
-    $('stime').textContent = info.sTime.toFixed(0);
-    $('splace').textContent = info.sPlace.toFixed(0);
-    $('sheight').textContent = info.sHeight.toFixed(0);
-    $('total').textContent = info.total.toFixed(0);
-    $('peak').textContent = info.peak.toFixed(1);
-    $('time').textContent = info.time.toFixed(1) + 's';
-    $('placed').textContent = info.placed;
-    $('dropped').textContent = info.dropped;
+    $('scoreNum').textContent = info.total.toFixed(0);
+    // 实时更新历史最高分 (与显示口径一致, 四舍五入)
+    const cur = Math.round(info.total);
+    if (cur > bestScore) { bestScore = cur; saveBest(bestScore); }
+    $('scoreBest').textContent = String(bestScore);
   }
+
+  // 历史最高分 (持久化)
+  function loadBest() { return parseInt(localStorage.getItem('pt_best') || '0', 10) || 0; }
+  function saveBest(v) { try { localStorage.setItem('pt_best', String(v)); } catch (e) {} }
+  let bestScore = loadBest();
 
   // 游戏每帧回调
   game.onUpdate = (info) => renderHUD(info);
-  game.onGameOver = (info, reason) => showOverlay('GAME OVER',
-    `<div class="row"><span class="muted">结束原因</span><span>${reason}</span></div>` +
-    `<div class="row"><span class="muted">存活时间</span><span>${info.time.toFixed(1)}s</span></div>` +
-    `<div class="row"><span class="muted">峰值高度 H</span><span>${info.peak.toFixed(1)}</span></div>` +
-    `<div class="row"><span class="muted">已放置 / 掉落</span><span>${info.placed}/${info.dropped}</span></div>` +
-    `<div class="row"><span class="muted">S_time</span><span>${info.sTime.toFixed(0)}</span></div>` +
-    `<div class="row"><span class="muted">S_place</span><span>${info.sPlace.toFixed(0)}</span></div>` +
-    `<div class="row"><span class="muted">S_height</span><span>${info.sHeight.toFixed(0)}</span></div>`,
-    `总分 ${info.total.toFixed(0)} · 按 R 或 点击“重开”再来一局`);
+  game.onGameOver = (info, reason) => {
+    const cur = Math.floor(info.total);
+    if (cur > bestScore) { bestScore = cur; saveBest(bestScore); }
+    const isNewBest = (cur >= bestScore && cur > 0);
+    showOverlay('GAME OVER',
+      `<div class="row"><span class="muted">结束原因</span><span>${reason}</span></div>` +
+      `<div class="row"><span class="muted">存活时间</span><span>${info.time.toFixed(1)}s</span></div>` +
+      `<div class="row"><span class="muted">峰值高度 H</span><span>${info.peak.toFixed(1)}</span></div>` +
+      `<div class="row"><span class="muted">已放置 / 掉落</span><span>${info.placed}/${info.dropped}</span></div>` +
+      (isNewBest ? `<div class="row"><span class="muted">🏆 新纪录</span><span>${cur}</span></div>` : ''),
+      `本局 ${cur} · 最高 ${bestScore} · 按 R 或 点击“重开”再来一局`);
+  };
 
   // 初次渲染
   renderHUD(game.scoreInfo());
@@ -150,13 +155,6 @@
     if (Settings.keys.left  === e.key) game.keys.left  = false;
     if (Settings.keys.right === e.key) game.keys.right = false;
     if (Settings.keys.soft  === e.key) game.keys.down  = false;
-  });
-  window.addEventListener('keyup', (e) => {
-    switch (e.key) {
-      case 'ArrowLeft': game.keys.left = false; break;
-      case 'ArrowRight': game.keys.right = false; break;
-      case 'ArrowDown': game.keys.down = false; break;
-    }
   });
 
   // ---- 主循环 ----
