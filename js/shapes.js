@@ -1,0 +1,57 @@
+// ============================================================
+//  shapes.js — 七种俄罗斯方块定义
+//  每个方块由 4 个 1×1 单元格组成, 以"单元格中心"坐标给出,
+//  坐标原点设在该方块的质心附近, 这样 Matter 的 setAngle 绕质心旋转,
+//  物理上与真实刚体一致 (AGENT.md §2.2 "Center of Mass").
+// ============================================================
+
+// 单元格中心偏移 (单位 = CELL), y 向下
+const SHAPES = {
+  // 4 连横
+  I: [[-1.5, 0], [-0.5, 0], [0.5, 0], [1.5, 0]],
+  // 2×2 方块 (质心恰在中心, 旋转不变)
+  O: [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]],
+  // T: 底排 3 格 + 上凸 1 格
+  T: [[-1, 0], [0, 0], [1, 0], [0, -1]],
+  // S: 右上左下
+  S: [[0, -1], [1, -1], [-1, 0], [0, 0]],
+  // Z: 左上右下
+  Z: [[-1, -1], [0, -1], [0, 0], [1, 0]],
+  // J: 左竖 + 底排
+  J: [[-1, -1], [-1, 0], [0, 0], [1, 0]],
+  // L: 右竖 + 底排
+  L: [[1, -1], [-1, 0], [0, 0], [1, 0]],
+};
+
+// 每种方块的颜色
+function colorOf(key) {
+  return COLORS[key];
+}
+
+// 计算给定单元格集合的质心 (单位坐标)
+function centroidOf(cells) {
+  let cx = 0, cy = 0;
+  for (const c of cells) { cx += c[0]; cy += c[1]; }
+  return [cx / cells.length, cy / cells.length];
+}
+
+// 将单元格集合顺时针旋转 90° (用于 agent 目标规划; 实际旋转由 Matter 完成)
+function rotateCW(cells) {
+  // (x, y) -> (-y, x)  (屏幕坐标 y 向下时的顺时针)
+  return cells.map(([x, y]) => [-y, x]);
+}
+
+// 随机方块 key (7-bag 可选; 这里用均匀随机, 已足够)
+function randomShapeKey() {
+  return SHAPE_KEYS[(Math.random() * SHAPE_KEYS.length) | 0];
+}
+
+// 方块包围盒 (单位), 用于碰撞/渲染参考
+function boundsOf(cells) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [x, y] of cells) {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  }
+  return { minX, maxX, minY, maxY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
