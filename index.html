@@ -16,14 +16,8 @@
     overflow: hidden;
     user-select: none;
   }
-  #container {
-    position: relative;
-  }
-  canvas {
-    display: block;
-    border: 2px solid #333;
-    border-radius: 4px;
-  }
+  #container { position: relative; }
+  canvas { display: block; border: 2px solid #333; border-radius: 4px; }
   #overlay {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -37,10 +31,10 @@
     border-radius: 4px;
   }
   #overlay.active { display: flex; }
-  #overlay h1 { font-size: 2em; margin-bottom: 20px; color: #ff6b6b; }
-  #overlay .stat { font-size: 1.2em; margin: 8px 0; color: #ccc; }
+  #overlay h1 { font-size: 2.4em; margin-bottom: 14px; color: #ff6b6b; letter-spacing: 2px; }
+  #overlay .stat { font-size: 1.05em; margin: 6px 0; color: #ccc; }
   #overlay .stat span { color: #4ecdc4; font-weight: bold; }
-  #overlay .hint { margin-top: 30px; font-size: 0.9em; color: #888; animation: blink 1.5s infinite; }
+  #overlay .hint { margin-top: 26px; font-size: 0.9em; color: #888; animation: blink 1.5s infinite; }
   @keyframes blink { 0%,100%{opacity:0.3} 50%{opacity:1} }
 </style>
 </head>
@@ -49,29 +43,39 @@
   <canvas id="canvas"></canvas>
   <div id="overlay" class="active">
     <h1>PHYSICS TETRIS</h1>
-    <div class="stat">带有真实物理引擎的俄罗斯方块</div>
-    <div class="stat">重心越界 → 方块掉落 → 损失生命</div>
-    <div class="stat" style="margin-top:16px;color:#4ecdc4;">← → 移动 &nbsp; ↑ 旋转 &nbsp; ↓ 加速</div>
-    <div class="stat" style="color:#4ecdc4;">空格 硬降 &nbsp; P 暂停 &nbsp; R 重新开始</div>
+    <div class="stat">真实刚体物理 · 重心越界即倾覆</div>
+    <div class="stat">掉到平台之外的地面 → 扣 1 命 → 方块消失</div>
+    <div class="stat" style="margin-top:16px;color:#4ecdc4;">← → 移动 &nbsp; ↑ 顺时针 &nbsp; ↓ 逆时针</div>
+    <div class="stat" style="color:#4ecdc4;">空格 下落（刚体自由下落，期间不可操作）</div>
+    <div class="stat" style="color:#888;">P 暂停 &nbsp; R 重新开始</div>
     <div class="hint">按任意键开始游戏</div>
   </div>
 </div>
+<script src="physics.js"></script>
 <script>
 // ============================================================
-//  CONFIGURATION
+//  CONFIG
 // ============================================================
-const PLATFORM_W = 10;
-const GRID_H = 20;
 const BLOCK = 30;
-const GRAVITY = 1200;
-const MAX_LIVES = 3;
-const FALL_THRESHOLD = 2.5;
-const ROT_DAMPING = 0.96;
-const DROP_INTERVAL = 800;
-const SOFT_DROP_INTERVAL = 40;
-const DAS_DELAY = 170;
-const DAS_REPEAT = 50;
-const LOCK_DELAY = 500;
+const CANVAS_W = 880, CANVAS_H = 740;
+const PLATFORM_W = 10;                       // blocks
+const PLATFORM_LEFT  = (CANVAS_W - PLATFORM_W*BLOCK)/2;   // 290
+const PLATFORM_RIGHT = PLATFORM_LEFT + PLATFORM_W*BLOCK; // 590
+const PLATFORM_TOP_Y = 500;                 // top surface of the pedestal
+const GROUND_Y        = 620;                // surrounding floor surface
+const PED_CX = (PLATFORM_LEFT+PLATFORM_RIGHT)/2;
+const PED_CY = (PLATFORM_TOP_Y+GROUND_Y)/2;
+const PED_HX = (PLATFORM_RIGHT-PLATFORM_LEFT)/2;
+const PED_HY = (GROUND_Y-PLATFORM_TOP_Y)/2;
+const SPAWN_Y = 70;
+
+const MAX_LIVES   = 3;
+const MAX_SETTLE  = 6.0;    // s, failsafe
+const GROUND_TOL  = 6;      // px
+const FIXED_DT    = 1/120;
+const DAS_DELAY   = 170, DAS_REPEAT = 55;
+
+const ALPHA = 1, BETA = 5, GAMMA = 10;
 
 const PIECE_SHAPES = {
   I: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
@@ -82,873 +86,467 @@ const PIECE_SHAPES = {
   J: [[1,0,0],[1,1,1],[0,0,0]],
   L: [[0,0,1],[1,1,1],[0,0,0]]
 };
-
 const PIECE_COLORS = {
-  I: '#00f0f0', O: '#f0f000', T: '#a000f0',
-  S: '#00f000', Z: '#f00000', J: '#0000f0', L: '#f0a000'
+  I:'#00f0f0', O:'#f0f000', T:'#a000f0',
+  S:'#00f000', Z:'#f00000', J:'#0000f0', L:'#f0a000'
 };
-
-const PIECE_LIGHT = {
-  I: '#66ffff', O: '#ffff66', T: '#cc66ff',
-  S: '#66ff66', Z: '#ff6666', J: '#6666ff', L: '#ffcc66'
-};
-
-const PIECE_DARK = {
-  I: '#009999', O: '#999900', T: '#660099',
-  S: '#009900', Z: '#990000', J: '#000099', L: '#996600'
-};
-
 const PIECE_NAMES = ['I','O','T','S','Z','J','L'];
 
-// ============================================================
-//  VECTOR2
-// ============================================================
-class Vec2 {
-  constructor(x, y) { this.x = x; this.y = y; }
-  clone() { return new Vec2(this.x, this.y); }
-  add(v) { return new Vec2(this.x + v.x, this.y + v.y); }
-  sub(v) { return new Vec2(this.x - v.x, this.y - v.y); }
-  scale(s) { return new Vec2(this.x * s, this.y * s); }
-  len() { return Math.sqrt(this.x * this.x + this.y * this.y); }
-  distTo(v) { return this.sub(v).len(); }
-}
+// ---- color helpers ----
+function parseHex(h){h=h.replace('#','');return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)];}
+function rgbStr(r,g,b){return 'rgb('+(r|0)+','+(g|0)+','+(b|0)+')';}
+function lighten(hex,f){const[r,g,b]=parseHex(hex);return rgbStr(r+(255-r)*f,g+(255-g)*f,b+(255-b)*f);}
+function darken(hex,f){const[r,g,b]=parseHex(hex);return rgbStr(r*(1-f),g*(1-f),b*(1-f));}
+
+// ---- matrix rotation (screen coords) ----
+function rotCW(s){const N=s.length;const r=[];for(let i=0;i<N;i++){r[i]=[];for(let j=0;j<N;j++)r[i][j]=s[N-1-j][i];}return r;}
+function rotCCW(s){const N=s.length;const r=[];for(let i=0;i<N;i++){r[i]=[];for(let j=0;j<N;j++)r[i][j]=s[j][N-1-i];}return r;}
 
 // ============================================================
-//  PHYSICS BODY
-// ============================================================
-class PhysicsBody {
-  constructor(blocks) {
-    this.blocks = blocks.map(b => ({ x: b.x + 0.5, y: b.y + 0.5 }));
-    this.com = this.calcCOM();
-    this.angle = 0;
-    this.angularVel = 0;
-    this.pivot = null;
-    this.state = 'stable';
-    this.fallVel = 0;
-  }
-
-  calcCOM() {
-    if (this.blocks.length === 0) return new Vec2(0, 0);
-    let cx = 0, cy = 0;
-    for (const b of this.blocks) { cx += b.x; cy += b.y; }
-    return new Vec2(cx / this.blocks.length, cy / this.blocks.length);
-  }
-
-  getSupport() {
-    return this.blocks.filter(b => b.y <= 0.5);
-  }
-
-  checkStability() {
-    const support = this.getSupport();
-    if (support.length === 0) {
-      this.state = 'falling';
-      this.fallVel = 0;
-      return false;
-    }
-    const minX = Math.min(...support.map(b => b.x - 0.5));
-    const maxX = Math.max(...support.map(b => b.x + 0.5));
-    this.com = this.calcCOM();
-    if (this.com.x < minX || this.com.x > maxX) {
-      this.state = 'unstable';
-      this.pivot = this.com.x < minX ? new Vec2(minX, 0) : new Vec2(maxX, 0);
-      return false;
-    }
-    this.state = 'stable';
-    this.angle = 0;
-    this.angularVel = 0;
-    return true;
-  }
-
-  update(dt) {
-    if (this.state === 'stable') return null;
-
-    if (this.state === 'falling') {
-      this.fallVel += GRAVITY * dt;
-      const dy = this.fallVel * dt / BLOCK;
-      for (const b of this.blocks) b.y -= dy;
-      this.com = this.calcCOM();
-      const fallen = this.blocks.filter(b => b.y < -FALL_THRESHOLD);
-      if (fallen.length > 0) {
-        this.blocks = this.blocks.filter(b => b.y >= -FALL_THRESHOLD);
-        return { fallen: fallen.length, empty: this.blocks.length === 0 };
-      }
-      return null;
-    }
-
-    if (this.state === 'unstable') {
-      const d = this.com.x - this.pivot.x;
-      const sign = d < 0 ? -1 : 1;
-      const torque = this.blocks.length * GRAVITY * Math.abs(d) / BLOCK;
-      let inertia = 0;
-      for (const b of this.blocks) {
-        const dx = b.x - this.pivot.x;
-        const dy = b.y - this.pivot.y;
-        inertia += dx * dx + dy * dy;
-      }
-      inertia = Math.max(inertia, 0.5);
-
-      const alpha = torque / inertia;
-      this.angularVel += sign * alpha * dt;
-      this.angularVel *= Math.pow(ROT_DAMPING, dt * 60);
-      const da = this.angularVel * dt;
-      this.angle += da;
-
-      const cos = Math.cos(da), sin = Math.sin(da);
-      for (const b of this.blocks) {
-        const rx = b.x - this.pivot.x;
-        const ry = b.y - this.pivot.y;
-        b.x = rx * cos - ry * sin + this.pivot.x;
-        b.y = rx * sin + ry * cos + this.pivot.y;
-      }
-
-      this.com = this.calcCOM();
-      const fallen = this.blocks.filter(b => b.y < -FALL_THRESHOLD);
-      if (fallen.length > 0) {
-        this.blocks = this.blocks.filter(b => b.y >= -FALL_THRESHOLD);
-        this.angle = 0;
-        this.angularVel = 0;
-        if (this.blocks.length > 0) this.checkStability();
-        return { fallen: fallen.length, empty: this.blocks.length === 0 };
-      }
-
-      this.checkStability();
-      return null;
-    }
-    return null;
-  }
-
-  getGridBlocks() {
-    return this.blocks.map(b => ({
-      x: Math.round(b.x - 0.5),
-      y: Math.round(b.y - 0.5),
-      rawX: b.x,
-      rawY: b.y
-    }));
-  }
-}
-
-// ============================================================
-//  GAME STATE
+//  GAME
 // ============================================================
 class Game {
-  constructor() {
+  constructor(){
     this.canvas = document.getElementById('canvas');
     this.ctx = this.canvas.getContext('2d');
-    this.canvas.width = 520;
-    this.canvas.height = 700;
-    this.offsetX = 40;
-    this.offsetY = 660;
+    this.canvas.width = CANVAS_W;
+    this.canvas.height = CANVAS_H;
 
-    this.grid = [];
-    for (let y = 0; y < GRID_H; y++) {
-      this.grid[y] = new Array(PLATFORM_W).fill(null);
-    }
+    const P = window.PhysicsTetris;
+    this.RigidBody = P.RigidBody;
+    this.StaticBody = P.StaticBody;
+    this.world = new P.PhysicsWorld(BLOCK);
+    this.world.addStatic(new this.StaticBody(PED_CX, PED_CY, PED_HX, PED_HY, 'platform', 0.95));
+    this.world.addStatic(new this.StaticBody(PLATFORM_LEFT/2, (GROUND_Y+CANVAS_H)/2, PLATFORM_LEFT/2, (CANVAS_H-GROUND_Y)/2, 'ground', 0.6));
+    this.world.addStatic(new this.StaticBody((PLATFORM_RIGHT+CANVAS_W)/2, (GROUND_Y+CANVAS_H)/2, (CANVAS_W-PLATFORM_RIGHT)/2, (CANVAS_H-GROUND_Y)/2, 'ground', 0.6));
 
-    this.bodies = [];
     this.activePiece = null;
     this.nextPieceName = null;
     this.lives = MAX_LIVES;
-    this.score = 0;
-    this.maxHeight = 0;
+    this.placeScore = 0;
+    this.peakH = 0;
     this.survivalTime = 0;
+    this.score = 0;
     this.state = 'title';
-    this.lockTimer = 0;
-    this.isOnGround = false;
+    this.settling = false;
+    this.settleTimer = 0;
+    this.acc = 0;
     this.fallAnim = [];
     this.shakeAmount = 0;
 
     this.keys = {};
-    this.dasTimers = { left: 0, right: 0 };
-    this.dasActive = { left: false, right: false };
-    this.dropTimer = 0;
-    this.softDrop = false;
+    this.dasActive = {left:false, right:false};
+    this.dasTimer = {left:0, right:0};
 
     this.setupInput();
     this.lastTime = performance.now();
-    this.accumulator = 0;
-    this.loop(this.lastTime);
+    requestAnimationFrame(t => this.loop(t));
   }
 
-  // ---- INPUT ----
-  setupInput() {
+  // ---------- input ----------
+  setupInput(){
     window.addEventListener('keydown', e => {
-      if (this.state === 'title') {
-        this.startGame();
+      if(this.state==='title'){ this.startGame(); return; }
+      if(e.key==='p'||e.key==='P'){
+        if(this.state==='playing') this.state='paused';
+        else if(this.state==='paused') this.state='playing';
         return;
       }
-      if (e.key === 'p' || e.key === 'P') {
-        if (this.state === 'playing') this.state = 'paused';
-        else if (this.state === 'paused') this.state = 'playing';
+      if(e.key==='r'||e.key==='R'){
+        if(this.state==='gameover'||this.state==='paused') this.restart();
         return;
       }
-      if (e.key === 'r' || e.key === 'R') {
-        if (this.state === 'gameover') this.restart();
-        return;
-      }
-      if (this.state !== 'playing') return;
-      this.keys[e.key] = true;
-      if (e.key === 'ArrowLeft') this.movePiece(-1, true);
-      if (e.key === 'ArrowRight') this.movePiece(1, true);
-      if (e.key === 'ArrowUp') this.rotatePiece();
-      if (e.key === ' ') { e.preventDefault(); this.hardDrop(); }
-      if (e.key === 'ArrowDown') this.softDrop = true;
+      if(this.state!=='playing') return;
+      if(this.settling) return;              // no control during fall
+      this.keys[e.key]=true;
+      if(e.key==='ArrowLeft'){ e.preventDefault(); this.moveHover(-1); this.dasActive.left=true; this.dasTimer.left=0; }
+      else if(e.key==='ArrowRight'){ e.preventDefault(); this.moveHover(1); this.dasActive.right=true; this.dasTimer.right=0; }
+      else if(e.key==='ArrowUp'){ e.preventDefault(); this.rotateHover(+1); }
+      else if(e.key==='ArrowDown'){ e.preventDefault(); this.rotateHover(-1); }
+      else if(e.key===' '){ e.preventDefault(); this.dropPiece(); }
     });
-
     window.addEventListener('keyup', e => {
-      this.keys[e.key] = false;
-      if (e.key === 'ArrowLeft') { this.dasActive.left = false; this.dasTimers.left = 0; }
-      if (e.key === 'ArrowRight') { this.dasActive.right = false; this.dasTimers.right = 0; }
-      if (e.key === 'ArrowDown') this.softDrop = false;
+      this.keys[e.key]=false;
+      if(e.key==='ArrowLeft'){ this.dasActive.left=false; }
+      if(e.key==='ArrowRight'){ this.dasActive.right=false; }
     });
   }
 
-  // ---- GAME FLOW ----
-  startGame() {
-    this.grid = [];
-    for (let y = 0; y < GRID_H; y++) this.grid[y] = new Array(PLATFORM_W).fill(null);
-    this.bodies = [];
+  // ---------- flow ----------
+  startGame(){
+    this.world.clear();
     this.lives = MAX_LIVES;
-    this.score = 0;
-    this.maxHeight = 0;
+    this.placeScore = 0;
+    this.peakH = 0;
     this.survivalTime = 0;
-    this.state = 'playing';
-    this.lockTimer = 0;
-    this.isOnGround = false;
+    this.score = 0;
+    this.settling = false;
+    this.settleTimer = 0;
+    this.acc = 0;
     this.fallAnim = [];
     this.shakeAmount = 0;
-    this.dropTimer = 0;
-    this.softDrop = false;
+    this.activePiece = null;
     this.nextPieceName = this.randomPiece();
+    this.state = 'playing';
     this.spawnPiece();
     document.getElementById('overlay').classList.remove('active');
   }
-
-  restart() {
-    this.startGame();
-  }
-
-  gameOver() {
+  restart(){ this.startGame(); }
+  gameOver(){
     this.state = 'gameover';
-    const overlay = document.getElementById('overlay');
-    overlay.classList.add('active');
-    overlay.innerHTML = `
-      <h1>GAME OVER</h1>
-      <div class="stat">最终得分: <span>${this.score.toLocaleString()}</span></div>
-      <div class="stat">最大堆叠高度: <span>${this.maxHeight}</span></div>
-      <div class="stat">存活时间: <span>${this.survivalTime.toFixed(1)}s</span></div>
-      <div class="stat" style="margin-top:16px;color:#888;">
-        得分公式: 时间×10 + 最大高度³×50
-      </div>
-      <div class="stat" style="color:#888;">
-        时间得分: ${Math.floor(this.survivalTime * 10)} &nbsp; 高度得分: ${this.maxHeight * this.maxHeight * this.maxHeight * 50}
-      </div>
-      <div class="hint">按 R 重新开始</div>
-    `;
+    const H = this.peakH;
+    const tPart = Math.floor(this.survivalTime);
+    const pPart = Math.round(this.placeScore);
+    const hPart = H*H*GAMMA;
+    const ov = document.getElementById('overlay');
+    ov.classList.add('active');
+    ov.innerHTML =
+      '<h1>GAME OVER</h1>'+
+      '<div class="stat">最终得分: <span>'+(tPart+pPart+hPart).toLocaleString()+'</span></div>'+
+      '<div class="stat">最大稳定高度: <span>'+H+' 格</span></div>'+
+      '<div class="stat">存活时间: <span>'+this.survivalTime.toFixed(1)+'s</span></div>'+
+      '<div class="stat" style="margin-top:14px;color:#888;">得分 = 时间×'+ALPHA+' + 放置(Σ'+BETA+'·h) + 高度²×'+GAMMA+'</div>'+
+      '<div class="stat" style="color:#888;">时间 '+tPart+' &nbsp; 放置 '+pPart+' &nbsp; 高度 '+hPart+'</div>'+
+      '<div class="hint">按 R 重新开始</div>';
   }
-
-  loseLife() {
+  loseLife(){
     this.lives--;
-    this.shakeAmount = 15;
-    if (this.lives <= 0) {
-      this.gameOver();
-    }
+    this.shakeAmount = 16;
+    if(this.lives<=0){ this.gameOver(); }
   }
 
-  // ---- PIECE MANAGEMENT ----
-  randomPiece() {
-    return PIECE_NAMES[Math.floor(Math.random() * PIECE_NAMES.length)];
-  }
-
-  spawnPiece() {
+  // ---------- pieces ----------
+  randomPiece(){ return PIECE_NAMES[Math.floor(Math.random()*PIECE_NAMES.length)]; }
+  spawnPiece(){
     const name = this.nextPieceName;
     this.nextPieceName = this.randomPiece();
-    const shape = PIECE_SHAPES[name].map(r => [...r]);
-    const w = shape[0].length;
-    const px = Math.floor((PLATFORM_W - w) / 2);
-    const py = GRID_H - 1;
-
-    if (this.collides(shape, px, py)) {
+    const shape = PIECE_SHAPES[name].map(r=>[...r]);
+    const w = shape[0].length, h = shape.length;
+    const x = CANVAS_W/2 - w*BLOCK/2;
+    const y = SPAWN_Y;
+    // top-out check
+    let stackTop = PLATFORM_TOP_Y;
+    for(const b of this.world.bodies){ const t=b.topY(); if(t<stackTop) stackTop=t; }
+    if(stackTop < SPAWN_Y + h*BLOCK + BLOCK){
       this.gameOver();
       return;
     }
-
-    this.activePiece = { name, shape, x: px, y: py };
-    this.dropTimer = DROP_INTERVAL;
-    this.lockTimer = 0;
-    this.isOnGround = false;
+    this.activePiece = { name, shape, x, y, w, h };
   }
 
-  collides(shape, px, py) {
-    for (let r = 0; r < shape.length; r++) {
-      for (let c = 0; c < shape[r].length; c++) {
-        if (!shape[r][c]) continue;
-        const gx = px + c;
-        const gy = py - r;
-        if (gx < 0 || gx >= PLATFORM_W || gy < 0) return true;
-        if (gy < GRID_H && this.grid[gy][gx] !== null) return true;
-      }
-    }
-    return false;
+  moveHover(dx){
+    const p = this.activePiece; if(!p) return;
+    let nx = p.x + dx*BLOCK;
+    const minx = 10, maxx = CANVAS_W-10-p.w*BLOCK;
+    if(nx<minx) nx=minx; if(nx>maxx) nx=maxx;
+    p.x = nx;
   }
-
-  movePiece(dx, isInitial) {
-    if (!this.activePiece || this.state !== 'playing') return false;
-    if (!this.collides(this.activePiece.shape, this.activePiece.x + dx, this.activePiece.y)) {
-      this.activePiece.x += dx;
-      if (isInitial) {
-        if (dx < 0) { this.dasActive.left = true; this.dasTimers.left = 0; }
-        else { this.dasActive.right = true; this.dasTimers.right = 0; }
-      }
-      this.resetLockIfOnGround();
-      return true;
+  rotateHover(dir){
+    const p = this.activePiece; if(!p) return;
+    const newShape = dir>0 ? rotCW(p.shape) : rotCCW(p.shape);
+    const newW = newShape[0].length, newH = newShape.length;
+    const cx = p.x + p.w*BLOCK/2;
+    const cy = p.y + p.h*BLOCK/2;
+    let nx = cx - newW*BLOCK/2;
+    let ny = cy - newH*BLOCK/2;
+    const minx = 10, maxx = CANVAS_W-10-newW*BLOCK;
+    const kicks = [0,-BLOCK,BLOCK,-2*BLOCK,2*BLOCK];
+    let chosen = null;
+    for(const k of kicks){
+      const tx = nx + k;
+      if(tx>=minx && tx<=maxx){ chosen = tx; break; }
     }
-    return false;
+    if(chosen===null) return;
+    if(ny<10) ny=10; if(ny>140) ny=140;
+    p.shape = newShape; p.w = newW; p.h = newH; p.x = chosen; p.y = ny;
   }
-
-  rotatePiece() {
-    if (!this.activePiece || this.state !== 'playing') return;
-    const s = this.activePiece.shape;
-    const N = s.length;
-    const rotated = [];
-    for (let r = 0; r < N; r++) {
-      rotated[r] = [];
-      for (let c = 0; c < N; c++) {
-        rotated[r][c] = s[N - 1 - c][r];
-      }
-    }
-    const kicks = [0, -1, 1, -2, 2];
-    for (const dx of kicks) {
-      if (!this.collides(rotated, this.activePiece.x + dx, this.activePiece.y)) {
-        this.activePiece.shape = rotated;
-        this.activePiece.x += dx;
-        this.resetLockIfOnGround();
-        return;
-      }
-    }
-  }
-
-  hardDrop() {
-    if (!this.activePiece || this.state !== 'playing') return;
-    while (!this.collides(this.activePiece.shape, this.activePiece.x, this.activePiece.y - 1)) {
-      this.activePiece.y--;
-    }
-    this.placePiece();
-  }
-
-  resetLockIfOnGround() {
-    if (this.collides(this.activePiece.shape, this.activePiece.x, this.activePiece.y - 1)) {
-      if (!this.isOnGround) { this.isOnGround = true; this.lockTimer = 0; }
-    } else {
-      this.isOnGround = false;
-      this.lockTimer = 0;
-    }
-  }
-
-  getGhostY() {
-    if (!this.activePiece) return 0;
-    let gy = this.activePiece.y;
-    while (!this.collides(this.activePiece.shape, this.activePiece.x, gy - 1)) gy--;
-    return gy;
-  }
-
-  // ---- PLACEMENT & PHYSICS ----
-  placePiece() {
-    const { name, shape, x, y } = this.activePiece;
-    const color = PIECE_COLORS[name];
-
-    const newBlocks = [];
-    for (let r = 0; r < shape.length; r++) {
-      for (let c = 0; c < shape[r].length; c++) {
-        if (!shape[r][c]) continue;
-        const gx = x + c;
-        const gy = y - r;
-        if (gy < GRID_H) {
-          this.grid[gy][gx] = color;
-          newBlocks.push({ x: gx, y: gy });
-        }
-      }
-    }
-
+  dropPiece(){
+    const p = this.activePiece; if(!p) return;
+    const cells = [];
+    for(let r=0;r<p.h;r++) for(let c=0;c<p.w;c++)
+      if(p.shape[r][c]) cells.push({x:p.x+c*BLOCK+BLOCK/2, y:p.y+r*BLOCK+BLOCK/2});
+    const body = new this.RigidBody(cells, PIECE_COLORS[p.name], p.name, BLOCK/2);
+    this.world.addBody(body);
     this.activePiece = null;
-    this.state = 'settling';
+    this.settling = true;
     this.settleTimer = 0;
-    this.rebuildBodies();
-    this.checkAllStability();
+    this.acc = 0;
   }
 
-  rebuildBodies() {
-    this.bodies = [];
-    const visited = new Set();
-
-    for (let gy = 0; gy < GRID_H; gy++) {
-      for (let gx = 0; gx < PLATFORM_W; gx++) {
-        if (this.grid[gy][gx] === null) continue;
-        const key = `${gx},${gy}`;
-        if (visited.has(key)) continue;
-
-        const blocks = [];
-        const queue = [{ x: gx, y: gy }];
-        visited.add(key);
-
-        while (queue.length > 0) {
-          const cur = queue.shift();
-          blocks.push(cur);
-          const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
-          for (const [dx, dy] of dirs) {
-            const nx = cur.x + dx, ny = cur.y + dy;
-            if (nx < 0 || nx >= PLATFORM_W || ny < 0 || ny >= GRID_H) continue;
-            if (this.grid[ny][nx] === null) continue;
-            const nk = `${nx},${ny}`;
-            if (visited.has(nk)) continue;
-            visited.add(nk);
-            queue.push({ x: nx, y: ny });
-          }
-        }
-
-        this.bodies.push(new PhysicsBody(blocks));
-      }
-    }
+  // ---------- settlement ----------
+  bodyOnGround(body){
+    if(body.bottomY() >= GROUND_Y - GROUND_TOL) return true;
+    if(body.pos.y > CANVAS_H + 40) return true;
+    return false;
   }
-
-  checkAllStability() {
-    let anyUnstable = false;
-    for (const body of this.bodies) {
-      if (!body.checkStability()) anyUnstable = true;
-    }
-    if (!anyUnstable) {
-      this.onSettled();
-    }
-  }
-
-  onSettled() {
-    this.state = 'playing';
-    this.updateMaxHeight();
-    this.spawnPiece();
-  }
-
-  updateMaxHeight() {
-    for (let gy = 0; gy < GRID_H; gy++) {
-      for (let gx = 0; gx < PLATFORM_W; gx++) {
-        if (this.grid[gy][gx] !== null) {
-          this.maxHeight = Math.max(this.maxHeight, gy + 1);
-        }
-      }
-    }
-  }
-
-  removeBodyBlocks(body) {
-    for (const b of body.blocks) {
-      const gx = Math.round(b.x - 0.5);
-      const gy = Math.round(b.y - 0.5);
-      if (gy >= 0 && gy < GRID_H && gx >= 0 && gx < PLATFORM_W) {
-        this.grid[gy][gx] = null;
-      }
-    }
-  }
-
-  addFallAnimation(body) {
-    for (const b of body.blocks) {
-      const gx = Math.round(b.x - 0.5);
-      const gy = Math.round(b.y - 0.5);
-      const color = 'gray';
-      this.fallAnim.push({
-        x: b.x, y: b.y,
-        vx: (Math.random() - 0.5) * 3,
-        vy: -Math.random() * 5,
-        life: 1.0,
-        color: color
-      });
-    }
-  }
-
-  // ---- UPDATE ----
-  update(dt) {
-    if (this.state === 'title' || this.state === 'paused' || this.state === 'gameover') return;
-    if (dt > 0.1) return;
-
-    this.survivalTime += dt;
-    this.score = Math.floor(this.survivalTime * 10) + this.maxHeight * this.maxHeight * this.maxHeight * 50;
-
-    if (this.shakeAmount > 0) this.shakeAmount *= Math.pow(0.01, dt);
-
-    for (let i = this.fallAnim.length - 1; i >= 0; i--) {
-      const p = this.fallAnim[i];
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.vy -= 300 * dt;
-      p.life -= dt * 2;
-      if (p.life <= 0) this.fallAnim.splice(i, 1);
-    }
-
-    if (this.state === 'settling') {
-      this.updateSettling(dt);
-      return;
-    }
-
-    this.updatePlaying(dt);
-  }
-
-  updatePlaying(dt) {
-    this.handleDAS(dt);
-
-    if (!this.activePiece) return;
-
-    const dropInt = this.softDrop ? SOFT_DROP_INTERVAL : DROP_INTERVAL;
-    this.dropTimer -= dt * 1000;
-
-    if (this.dropTimer <= 0) {
-      this.dropTimer += dropInt;
-      if (!this.collides(this.activePiece.shape, this.activePiece.x, this.activePiece.y - 1)) {
-        this.activePiece.y--;
-        this.resetLockIfOnGround();
-      }
-    }
-
-    if (this.isOnGround) {
-      this.lockTimer += dt * 1000;
-      if (this.lockTimer >= LOCK_DELAY) {
-        this.placePiece();
-      }
-    }
-  }
-
-  handleDAS(dt) {
-    const dtMs = dt * 1000;
-    for (const dir of ['left', 'right']) {
-      const dx = dir === 'left' ? -1 : 1;
-      const key = dir === 'left' ? 'ArrowLeft' : 'ArrowRight';
-      if (this.keys[key] && this.dasActive[dir]) {
-        this.dasTimers[dir] += dtMs;
-        if (this.dasTimers[dir] >= DAS_DELAY + DAS_REPEAT) {
-          this.dasTimers[dir] -= DAS_REPEAT;
-          this.movePiece(dx, false);
-        }
-      }
-    }
-  }
-
-  updateSettling(dt) {
-    this.settleTimer += dt;
-
-    let totalFallen = 0;
-
-    for (const body of this.bodies) {
-      const result = body.update(dt);
-      if (result) {
-        totalFallen += result.fallen;
-        this.addFallAnimation(body);
-        this.removeBodyBlocks(body);
-      }
-    }
-
-    this.bodies = this.bodies.filter(b => b.blocks.length > 0);
-
-    if (totalFallen > 0) {
-      this.loseLife();
-      if (this.state === 'gameover') return;
-    }
-
-    if (this.settleTimer > 0.3) {
-      this.rebuildBodies();
-      this.settleTimer = 0;
-    }
-
-    let allStable = true;
-    for (const body of this.bodies) {
-      if (body.state !== 'stable') { allStable = false; break; }
-    }
-
-    if (allStable && this.bodies.every(b => b.state === 'stable')) {
-      this.onSettled();
-    }
-  }
-
-  // ---- RENDER ----
-  render() {
-    const ctx = this.ctx;
-    const W = this.canvas.width, H = this.canvas.height;
-    ctx.clearRect(0, 0, W, H);
-
-    const sx = this.shakeAmount * (Math.random() - 0.5);
-    const sy = this.shakeAmount * (Math.random() - 0.5);
-    ctx.save();
-    ctx.translate(sx, sy);
-
-    this.drawBackground(ctx);
-    this.drawGrid(ctx);
-    this.drawPlatform(ctx);
-    this.drawBodies(ctx);
-    this.drawGhostPiece(ctx);
-    this.drawActivePiece(ctx);
-    this.drawFallAnimations(ctx);
-    this.drawUI(ctx);
-
-    ctx.restore();
-
-    if (this.state === 'paused') {
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = '#fff';
-      ctx.font = '36px "Courier New"';
-      ctx.textAlign = 'center';
-      ctx.fillText('PAUSED', W / 2, H / 2);
-      ctx.font = '16px "Courier New"';
-      ctx.fillText('按 P 继续', W / 2, H / 2 + 30);
-    }
-  }
-
-  drawBackground(ctx) {
-    ctx.fillStyle = '#111122';
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.fillStyle = '#151530';
-    ctx.fillRect(this.offsetX - 2, this.offsetY - GRID_H * BLOCK - 2,
-      PLATFORM_W * BLOCK + 4, GRID_H * BLOCK + 4);
-  }
-
-  drawGrid(ctx) {
-    ctx.strokeStyle = '#1a1a3a';
-    ctx.lineWidth = 0.5;
-    for (let x = 0; x <= PLATFORM_W; x++) {
-      const sx = this.offsetX + x * BLOCK;
-      ctx.beginPath();
-      ctx.moveTo(sx, this.offsetY);
-      ctx.lineTo(sx, this.offsetY - GRID_H * BLOCK);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= GRID_H; y++) {
-      const sy = this.offsetY - y * BLOCK;
-      ctx.beginPath();
-      ctx.moveTo(this.offsetX, sy);
-      ctx.lineTo(this.offsetX + PLATFORM_W * BLOCK, sy);
-      ctx.stroke();
-    }
-  }
-
-  drawPlatform(ctx) {
-    const px = this.offsetX;
-    const py = this.offsetY;
-    const pw = PLATFORM_W * BLOCK;
-    const ph = 8;
-
-    const grad = ctx.createLinearGradient(px, py, px, py + ph);
-    grad.addColorStop(0, '#6a6a8a');
-    grad.addColorStop(0.5, '#8a8aaa');
-    grad.addColorStop(1, '#4a4a6a');
-    ctx.fillStyle = grad;
-    ctx.fillRect(px, py, pw, ph);
-
-    ctx.strokeStyle = '#aaaacc';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(px, py, pw, ph);
-
-    ctx.fillStyle = '#ff6b6b';
-    ctx.font = '10px "Courier New"';
-    ctx.textAlign = 'center';
-    for (let x = 0; x < PLATFORM_W; x++) {
-      ctx.fillText(x, this.offsetX + x * BLOCK + BLOCK / 2, this.offsetY + 16);
-    }
-  }
-
-  screenPos(x, y) {
-    return {
-      x: this.offsetX + x * BLOCK,
-      y: this.offsetY - y * BLOCK
-    };
-  }
-
-  drawBlock(ctx, x, y, color, alpha = 1) {
-    const s = this.screenPos(x, y);
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = color;
-    ctx.fillRect(s.x + 1, s.y - BLOCK + 1, BLOCK - 2, BLOCK - 2);
-
-    ctx.fillStyle = PIECE_LIGHT[this.colorName(color)] || 'rgba(255,255,255,0.3)';
-    ctx.fillRect(s.x + 1, s.y - BLOCK + 1, BLOCK - 2, 3);
-    ctx.fillRect(s.x + 1, s.y - BLOCK + 1, 3, BLOCK - 2);
-
-    ctx.fillStyle = PIECE_DARK[this.colorName(color)] || 'rgba(0,0,0,0.3)';
-    ctx.fillRect(s.x + 1, s.y - 3, BLOCK - 2, 3);
-    ctx.fillRect(s.x + BLOCK - 4, s.y - BLOCK + 1, 3, BLOCK - 2);
-
-    ctx.globalAlpha = 1;
-  }
-
-  colorName(hex) {
-    for (const [k, v] of Object.entries(PIECE_COLORS)) {
-      if (v === hex) return k;
-    }
-    return null;
-  }
-
-  drawBodies(ctx) {
-    for (const body of this.bodies) {
-      if (body.state === 'stable') {
-        for (const b of body.blocks) {
-          const gx = Math.round(b.x - 0.5);
-          const gy = Math.round(b.y - 0.5);
-          if (gy >= 0 && gy < GRID_H && gx >= 0 && gx < PLATFORM_W) {
-            const color = this.grid[gy][gx] || '#888';
-            this.drawBlock(ctx, gx, gy + 1, color);
-          }
-        }
+  finalizeSettle(){
+    for(const b of [...this.world.bodies]){
+      if(this.bodyOnGround(b)){
+        this.loseLife();
+        this.placeScore -= b.placeContribution;
+        this.addFallParticles(b);
+        this.world.remove(b);
+        if(this.state==='gameover') return;
       } else {
-        const pivot = body.pivot || body.com;
-        const ps = this.screenPos(pivot.x, pivot.y);
-        ctx.save();
-        ctx.translate(ps.x, ps.y - BLOCK / 2);
-        ctx.rotate(body.angle);
-
-        for (const b of body.blocks) {
-          const rx = (b.x - pivot.x) * BLOCK;
-          const ry = -(b.y - pivot.y) * BLOCK;
-          const color = '#ff4444';
-          ctx.fillStyle = color;
-          ctx.fillRect(rx + 1, ry + 1, BLOCK - 2, BLOCK - 2);
-          ctx.fillStyle = 'rgba(255,255,255,0.3)';
-          ctx.fillRect(rx + 1, ry + 1, BLOCK - 2, 3);
-          ctx.fillRect(rx + 1, ry + 1, 3, BLOCK - 2);
+        if(!b.placed){
+          b.placed = true;
+          const h = Math.max(0,(PLATFORM_TOP_Y - b.pos.y)/BLOCK);
+          b.placeContribution = BETA*h;
+          this.placeScore += b.placeContribution;
         }
+        const H = Math.round((PLATFORM_TOP_Y - b.topY())/BLOCK);
+        if(H > this.peakH) this.peakH = H;
+      }
+    }
+    this.settling = false;
+    this.settleTimer = 0;
+    if(this.lives>0) this.spawnPiece();
+  }
 
-        ctx.restore();
+  // ---------- particles ----------
+  addFallParticles(body){
+    const cells = body.getWorldCells();
+    for(const c of cells){
+      for(let k=0;k<2;k++){
+        this.fallAnim.push({
+          x:c.x, y:c.y,
+          vx:(Math.random()-0.5)*260,
+          vy:-Math.random()*220,
+          life:1.0, color:body.color
+        });
       }
     }
   }
-
-  drawActivePiece(ctx) {
-    if (!this.activePiece) return;
-    const { name, shape, x, y } = this.activePiece;
-    const color = PIECE_COLORS[name];
-    for (let r = 0; r < shape.length; r++) {
-      for (let c = 0; c < shape[r].length; c++) {
-        if (!shape[r][c]) continue;
-        this.drawBlock(ctx, x + c, y - r + 1, color);
-      }
+  updateParticles(dt){
+    for(let i=this.fallAnim.length-1;i>=0;i--){
+      const p=this.fallAnim[i];
+      p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=1400*dt; p.life-=dt*1.3;
+      if(p.life<=0||p.y>CANVAS_H+20) this.fallAnim.splice(i,1);
     }
   }
 
-  drawGhostPiece(ctx) {
-    if (!this.activePiece) return;
-    const { name, shape, x } = this.activePiece;
-    const gy = this.getGhostY();
-    if (gy === this.activePiece.y) return;
-    const color = PIECE_COLORS[name];
-    for (let r = 0; r < shape.length; r++) {
-      for (let c = 0; c < shape[r].length; c++) {
-        if (!shape[r][c]) continue;
-        this.drawBlock(ctx, x + c, gy - r + 1, color, 0.25);
-      }
-    }
+  // ---------- update ----------
+  recomputeScore(){
+    const tPart = Math.floor(this.survivalTime);
+    const pPart = Math.round(this.placeScore);
+    const hPart = this.peakH*this.peakH*GAMMA;
+    this.score = tPart + pPart + hPart;
   }
-
-  drawFallAnimations(ctx) {
-    for (const p of this.fallAnim) {
-      const s = this.screenPos(p.x, p.y);
-      ctx.globalAlpha = p.life;
-      ctx.fillStyle = '#ff4444';
-      const sz = BLOCK * 0.7;
-      ctx.fillRect(s.x - sz / 2 + BLOCK / 2, s.y - sz / 2, sz, sz);
-      ctx.globalAlpha = 1;
-    }
-  }
-
-  drawUI(ctx) {
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px "Courier New"';
-    ctx.textAlign = 'left';
-
-    const ux = this.offsetX + PLATFORM_W * BLOCK + 24;
-    const lineH = 28;
-
-    ctx.fillText('SCORE', ux, 50);
-    ctx.fillStyle = '#4ecdc4';
-    ctx.font = 'bold 22px "Courier New"';
-    ctx.fillText(this.score.toLocaleString(), ux, 78);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px "Courier New"';
-    ctx.fillText('LIVES', ux, 120);
-    ctx.fillStyle = '#ff6b6b';
-    ctx.font = 'bold 22px "Courier New"';
-    ctx.fillText('♥'.repeat(this.lives) + '♡'.repeat(MAX_LIVES - this.lives), ux, 148);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px "Courier New"';
-    ctx.fillText('HEIGHT', ux, 188);
-    ctx.fillStyle = '#ffe66d';
-    ctx.font = 'bold 22px "Courier New"';
-    ctx.fillText(String(this.maxHeight), ux, 216);
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px "Courier New"';
-    ctx.fillText('TIME', ux, 256);
-    ctx.fillStyle = '#a0a0ff';
-    ctx.font = 'bold 22px "Courier New"';
-    ctx.fillText(this.survivalTime.toFixed(1) + 's', ux, 284);
-
-    const nx = ux;
-    const ny = 340;
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 16px "Courier New"';
-    ctx.fillText('NEXT', nx, ny);
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(nx, ny + 6, BLOCK * 4, BLOCK * 4);
-
-    if (this.nextPieceName) {
-      const shape = PIECE_SHAPES[this.nextPieceName];
-      const color = PIECE_COLORS[this.nextPieceName];
-      const h = shape.length, w = shape[0].length;
-      const ox = nx + (BLOCK * 4 - w * BLOCK) / 2;
-      const oy = ny + 6 + (BLOCK * 4 - h * BLOCK) / 2;
-      for (let r = 0; r < h; r++) {
-        for (let c = 0; c < w; c++) {
-          if (!shape[r][c]) continue;
-          ctx.fillStyle = color;
-          ctx.fillRect(ox + c * BLOCK + 1, oy + r * BLOCK + 1, BLOCK - 2, BLOCK - 2);
+  handleDAS(dt){
+    const dtms = dt*1000;
+    for(const dir of ['left','right']){
+      const dx = dir==='left'?-1:1;
+      const key = dir==='left'?'ArrowLeft':'ArrowRight';
+      if(this.keys[key] && this.dasActive[dir]){
+        this.dasTimer[dir]+=dtms;
+        if(this.dasTimer[dir] >= DAS_DELAY+DAS_REPEAT){
+          this.dasTimer[dir]-=DAS_REPEAT;
+          this.moveHover(dx);
         }
       }
     }
+  }
+  update(dt){
+    if(this.state!=='playing') return;
+    this.survivalTime += dt;
+    this.recomputeScore();
+    if(this.shakeAmount>0) this.shakeAmount *= Math.pow(0.01,dt);
+    this.updateParticles(dt);
 
-    ctx.fillStyle = '#666';
-    ctx.font = '11px "Courier New"';
-    const cy = 440;
-    ctx.fillText('← → 移动', ux, cy);
-    ctx.fillText('↑ 旋转', ux, cy + 18);
-    ctx.fillText('↓ 加速下落', ux, cy + 36);
-    ctx.fillText('空格 硬降', ux, cy + 54);
-    ctx.fillText('P 暂停', ux, cy + 72);
-    ctx.fillText('R 重新开始', ux, cy + 90);
-
-    ctx.fillStyle = '#555';
-    ctx.font = '10px "Courier New"';
-    ctx.fillText('得分 = 时间×10', ux, cy + 120);
-    ctx.fillText('     + 高度³×50', ux, cy + 134);
+    if(this.settling){
+      this.settleTimer += dt;
+      this.acc += dt;
+      let guard = 0;
+      while(this.acc >= FIXED_DT && guard<8){
+        this.world.step(FIXED_DT);
+        this.acc -= FIXED_DT; guard++;
+      }
+      if(this.world.isSettled() || this.settleTimer > MAX_SETTLE){
+        for(const b of this.world.bodies){ b.vel.x=0; b.vel.y=0; b.angVel=0; }
+        this.finalizeSettle();
+      }
+    } else {
+      this.handleDAS(dt);
+    }
   }
 
-  // ---- GAME LOOP ----
-  loop(timestamp) {
-    const rawDt = (timestamp - this.lastTime) / 1000;
-    this.lastTime = timestamp;
-    const dt = Math.min(rawDt, 0.1);
-
-    if (this.state === 'playing' || this.state === 'settling') {
-      this.accumulator += dt;
-      const FIXED_DT = 1 / 120;
-      while (this.accumulator >= FIXED_DT) {
-        this.update(FIXED_DT);
-        this.accumulator -= FIXED_DT;
+  // ---------- render ----------
+  render(){
+    const ctx=this.ctx;
+    ctx.clearRect(0,0,CANVAS_W,CANVAS_H);
+    const sx=this.shakeAmount*(Math.random()-0.5);
+    const sy=this.shakeAmount*(Math.random()-0.5);
+    ctx.save(); ctx.translate(sx,sy);
+    this.drawBackground(ctx);
+    this.drawGround(ctx);
+    this.drawBodies(ctx);
+    this.drawHoverPiece(ctx);
+    this.drawParticles(ctx);
+    this.drawUI(ctx);
+    ctx.restore();
+    if(this.state==='paused'){
+      ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+      ctx.fillStyle='#fff'; ctx.font='36px "Courier New"'; ctx.textAlign='center';
+      ctx.fillText('PAUSED',CANVAS_W/2,CANVAS_H/2);
+      ctx.font='16px "Courier New"'; ctx.fillText('按 P 继续',CANVAS_W/2,CANVAS_H/2+30);
+    }
+  }
+  drawBackground(ctx){
+    ctx.fillStyle='#0d0d22'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+    // subtle vignette grid in open space
+    ctx.strokeStyle='#151530'; ctx.lineWidth=0.5;
+    for(let x=0;x<=CANVAS_W;x+=BLOCK){
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,CANVAS_H); ctx.stroke();
+    }
+    for(let y=0;y<=CANVAS_H;y+=BLOCK){
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(CANVAS_W,y); ctx.stroke();
+    }
+  }
+  drawGround(ctx){
+    // floor area
+    const g=ctx.createLinearGradient(0,GROUND_Y,0,CANVAS_H);
+    g.addColorStop(0,'#2a2a3e'); g.addColorStop(1,'#161620');
+    ctx.fillStyle=g; ctx.fillRect(0,GROUND_Y,CANVAS_W,CANVAS_H-GROUND_Y);
+    ctx.strokeStyle='#3a3a55'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(0,GROUND_Y); ctx.lineTo(CANVAS_W,GROUND_Y); ctx.stroke();
+    // pedestal
+    const pg=ctx.createLinearGradient(0,PLATFORM_TOP_Y,0,GROUND_Y);
+    pg.addColorStop(0,'#6a6a90'); pg.addColorStop(0.5,'#5a5a7a'); pg.addColorStop(1,'#34344a');
+    ctx.fillStyle=pg;
+    ctx.fillRect(PLATFORM_LEFT,PLATFORM_TOP_Y,PLATFORM_RIGHT-PLATFORM_LEFT,GROUND_Y-PLATFORM_TOP_Y);
+    ctx.strokeStyle='#aaaacc'; ctx.lineWidth=1.5;
+    ctx.strokeRect(PLATFORM_LEFT,PLATFORM_TOP_Y,PLATFORM_RIGHT-PLATFORM_LEFT,GROUND_Y-PLATFORM_TOP_Y);
+    // top surface highlight
+    ctx.fillStyle='rgba(255,255,255,0.15)';
+    ctx.fillRect(PLATFORM_LEFT,PLATFORM_TOP_Y,PLATFORM_RIGHT-PLATFORM_LEFT,3);
+    // platform column ticks
+    ctx.fillStyle='#ff6b6b'; ctx.font='10px "Courier New"'; ctx.textAlign='center';
+    for(let x=0;x<PLATFORM_W;x++)
+      ctx.fillText(x, PLATFORM_LEFT+x*BLOCK+BLOCK/2, GROUND_Y+16);
+  }
+  drawOrientedCell(ctx,cx,cy,angle,color){
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(angle);
+    const h=BLOCK/2-1;
+    ctx.fillStyle=color; ctx.fillRect(-h,-h,2*h,2*h);
+    ctx.fillStyle=lighten(color,0.4); ctx.fillRect(-h,-h,2*h,3); ctx.fillRect(-h,-h,3,2*h);
+    ctx.fillStyle=darken(color,0.4);  ctx.fillRect(-h,h-3,2*h,3); ctx.fillRect(h-3,-h,3,2*h);
+    ctx.strokeStyle=darken(color,0.6); ctx.lineWidth=1; ctx.strokeRect(-h,-h,2*h,2*h);
+    ctx.restore();
+  }
+  drawBodies(ctx){
+    for(const b of this.world.bodies){
+      const cells=b.getWorldCells();
+      for(const c of cells) this.drawOrientedCell(ctx,c.x,c.y,b.angle,b.color);
+      if(!b.placed){
+        // motion indicator: outline
+        ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=2;
+        ctx.beginPath();
+        const aabb=b.aabb;
+        ctx.rect(aabb.minX,aabb.minY,aabb.maxX-aabb.minX,aabb.maxY-aabb.minY);
+        ctx.stroke();
       }
     }
+  }
+  drawHoverPiece(ctx){
+    const p=this.activePiece; if(!p) return;
+    const color=PIECE_COLORS[p.name];
+    for(let r=0;r<p.h;r++) for(let c=0;c<p.w;c++)
+      if(p.shape[r][c]) this.drawOrientedCell(ctx, p.x+c*BLOCK+BLOCK/2, p.y+r*BLOCK+BLOCK/2, 0, color);
+    // ground-shadow indicator under the piece
+    ctx.fillStyle='rgba(255,107,107,0.12)';
+    ctx.fillRect(p.x, p.y, p.w*BLOCK, p.h*BLOCK);
+  }
+  drawParticles(ctx){
+    for(const p of this.fallAnim){
+      ctx.globalAlpha=Math.max(0,p.life);
+      ctx.fillStyle=p.color;
+      const sz=BLOCK*0.5;
+      ctx.fillRect(p.x-sz/2,p.y-sz/2,sz,sz);
+    }
+    ctx.globalAlpha=1;
+  }
+  drawUI(ctx){
+    const ux = PLATFORM_RIGHT + 26;
+    ctx.textAlign='left';
+    ctx.fillStyle='#fff'; ctx.font='bold 18px "Courier New"';
+    ctx.fillText('SCORE', ux, 44);
+    ctx.fillStyle='#4ecdc4'; ctx.font='bold 24px "Courier New"';
+    ctx.fillText(this.score.toLocaleString(), ux, 72);
 
+    const tPart=Math.floor(this.survivalTime);
+    const pPart=Math.round(this.placeScore);
+    const hPart=this.peakH*this.peakH*GAMMA;
+    ctx.fillStyle='#888'; ctx.font='11px "Courier New"';
+    ctx.fillText('时间 +'+tPart+'   放置 +'+pPart+'   高度 +'+hPart, ux, 92);
+
+    ctx.fillStyle='#fff'; ctx.font='bold 18px "Courier New"';
+    ctx.fillText('LIVES', ux, 128);
+    ctx.fillStyle='#ff6b6b'; ctx.font='bold 22px "Courier New"';
+    ctx.fillText('♥'.repeat(this.lives)+'♡'.repeat(MAX_LIVES-this.lives), ux, 156);
+
+    ctx.fillStyle='#fff'; ctx.font='bold 18px "Courier New"';
+    ctx.fillText('HEIGHT', ux, 196);
+    ctx.fillStyle='#ffe66d'; ctx.font='bold 22px "Courier New"';
+    ctx.fillText(this.peakH+' 格', ux, 224);
+
+    ctx.fillStyle='#fff'; ctx.font='bold 18px "Courier New"';
+    ctx.fillText('TIME', ux, 264);
+    ctx.fillStyle='#a0a0ff'; ctx.font='bold 22px "Courier New"';
+    ctx.fillText(this.survivalTime.toFixed(1)+'s', ux, 292);
+
+    // next
+    ctx.fillStyle='#fff'; ctx.font='bold 16px "Courier New"';
+    ctx.fillText('NEXT', ux, 332);
+    ctx.strokeStyle='#333'; ctx.lineWidth=1;
+    ctx.strokeRect(ux, 338, BLOCK*4, BLOCK*4);
+    if(this.nextPieceName){
+      const shape=PIECE_SHAPES[this.nextPieceName];
+      const color=PIECE_COLORS[this.nextPieceName];
+      const h=shape.length, w=shape[0].length;
+      const ox=ux+(BLOCK*4-w*BLOCK)/2;
+      const oy=338+(BLOCK*4-h*BLOCK)/2;
+      for(let r=0;r<h;r++) for(let c=0;c<w;c++)
+        if(shape[r][c]) this.drawOrientedCell(ctx, ox+c*BLOCK+BLOCK/2, oy+r*BLOCK+BLOCK/2, 0, color);
+    }
+
+    // controls
+    ctx.fillStyle='#666'; ctx.font='11px "Courier New"';
+    let cy=470;
+    ctx.fillText('← → 移动', ux, cy); cy+=18;
+    ctx.fillText('↑ 顺时针', ux, cy); cy+=18;
+    ctx.fillText('↓ 逆时针', ux, cy); cy+=18;
+    ctx.fillText('空格 下落', ux, cy); cy+=18;
+    ctx.fillText('P 暂停', ux, cy); cy+=18;
+    ctx.fillText('R 重新开始', ux, cy); cy+=24;
+    ctx.fillStyle='#555'; ctx.font='10px "Courier New"';
+    ctx.fillText('得分 = 时间×'+ALPHA, ux, cy); cy+=14;
+    ctx.fillText('  + 放置(Σ'+BETA+'·h)', ux, cy); cy+=14;
+    ctx.fillText('  + 高度²×'+GAMMA, ux, cy);
+
+    // state hint on the left side
+    if(this.settling){
+      ctx.fillStyle='#ff6b6b'; ctx.font='bold 14px "Courier New"';
+      ctx.textAlign='left';
+      ctx.fillText('下落中…', 14, 30);
+    } else if(this.activePiece){
+      ctx.fillStyle='#4ecdc4'; ctx.font='bold 14px "Courier New"';
+      ctx.textAlign='left';
+      ctx.fillText('按空格下落', 14, 30);
+    }
+  }
+
+  // ---------- loop ----------
+  loop(ts){
+    const rawDt=(ts-this.lastTime)/1000;
+    this.lastTime=ts;
+    const dt=Math.min(rawDt,0.05);
+    this.update(dt);
     this.render();
-    requestAnimationFrame(t => this.loop(t));
+    requestAnimationFrame(t=>this.loop(t));
   }
 }
 
-// ============================================================
-//  INIT
-// ============================================================
-const game = new Game();
+new Game();
 </script>
 </body>
 </html>
