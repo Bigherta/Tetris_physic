@@ -68,7 +68,10 @@
       <div class="help">
         <kbd>←</kbd><kbd>→</kbd> 移动 · <kbd>↑</kbd> 旋转<br>
         <kbd>↓</kbd> 软降 · <kbd>Space</kbd> 硬降 (接触转物理)<br>
-        <kbd>P</kbd> 暂停 · <kbd>R</kbd> 重开
+        <kbd>P</kbd> 暂停 · <kbd>R</kbd> 重开 · <kbd>O</kbd> 设置
+      </div>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn" id="btn-settings">设置 (O)</button>
       </div>
     </div>
 
@@ -86,11 +89,36 @@
   </div>
 </div>
 
+<!-- ============ 设置面板 ============ -->
+<div id="settingsOverlay" class="settings-overlay hidden">
+  <div class="settings-panel">
+    <div class="settings-head">
+      <h2>设置 / Settings</h2>
+      <button class="btn" id="settings-close">✕</button>
+    </div>
+    <div class="settings-body">
+      <h3>按键映射</h3>
+      <div class="key-bind-list" id="keyBindList"></div>
+      <h3 style="margin-top:14px">横移速度</h3>
+      <div class="slider-row">
+        <input type="range" id="moveSpeedSlider" min="2" max="40" step="1">
+        <span class="val" id="moveSpeedVal"></span>
+      </div>
+    </div>
+    <div class="settings-foot">
+      <button class="btn" id="settings-reset">恢复默认</button>
+      <button class="btn active" id="settings-save">保存</button>
+    </div>
+    <div class="settings-hint">点击右侧按键框, 再按想要的键即可重新绑定 · 快捷键 O 开关</div>
+  </div>
+</div>
+
 <!-- 依赖 (本地 vendor, 离线可用) -->
 <script src="vendor/matter.min.js"></script>
 <!-- 游戏模块 -->
 <script src="js/constants.js"></script>
 <script src="js/shapes.js"></script>
+<script src="js/settings.js"></script>
 <script src="js/physics.js"></script>
 <script src="js/renderer.js"></script>
 <script src="js/game.js"></script>
