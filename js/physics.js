@@ -62,15 +62,16 @@ class PhysicsWorld {
 
   // ---- 创建一个复合方块刚体 --------------------------------------
   // shapeKey: 形状; (px,py): 部件生成参考点 (整数倍 CELL, 与半整数偏移配合使方块落于网格格心);
-  //           angle: 初始角度
-  createPiece(shapeKey, px, py, angle = 0, isStatic = true) {
+  //           angle: 初始角度; material: 'normal' | 'stone' — 决定密度等 (石块更重)
+  createPiece(shapeKey, px, py, angle = 0, isStatic = true, material = 'normal') {
     const cells = SHAPES[shapeKey];
+    const mat = MATERIALS[material] || MATERIALS.normal;
     const parts = cells.map(([cx, cy]) =>
       Bodies.rectangle(px + cx * CELL, py + cy * CELL, CELL, CELL, {
-        density: BLOCK_DENSITY,
-        friction: BLOCK_FRICTION,
-        frictionStatic: BLOCK_FRICTION_STATIC,
-        restitution: BLOCK_RESTITUTION,
+        density: mat.density,
+        friction: mat.friction,
+        frictionStatic: mat.frictionStatic,
+        restitution: mat.restitution,
         // 不加 chamfer: 倒角会让单元格角点变圆, 竖立 I 块以此圆角为支点
         // 产生微抖动并被放大成倾倒. 平直面接触更稳定 (视觉圆角由 renderer 负责).
       })
@@ -78,9 +79,9 @@ class PhysicsWorld {
     const body = Body.create({
       parts,
       isStatic,
-      friction: BLOCK_FRICTION,
-      frictionStatic: BLOCK_FRICTION_STATIC,
-      restitution: BLOCK_RESTITUTION,
+      friction: mat.friction,
+      frictionStatic: mat.frictionStatic,
+      restitution: mat.restitution,
       label: 'piece:' + shapeKey,
     });
     // Body.create 已据各部件自动算出质心 (body.position = 部件质心), 旋转/平移都以该质心
@@ -88,7 +89,10 @@ class PhysicsWorld {
     // 故方块整体与游戏网格对齐; 不再用 setPosition 覆盖质心, 以免把方块推离网格.
     Body.setAngle(body, angle);
     body.pieceShape = shapeKey;
-    body.pieceColor = COLORS[shapeKey];
+    body.pieceMaterial = material;
+    body.pieceColor = materialColor(material, shapeKey);
+    // 记录材质物理参数, 供 releaseActive 在 setStatic(false) 后重新施加 (含密度 -> 质量)
+    body.matProps = { density: mat.density, friction: mat.friction, frictionStatic: mat.frictionStatic, restitution: mat.restitution };
     body.placedAt = null;       // 放置时间戳
     body.stableFrames = 0;       // 静止累计帧
     body.rewarded = false;       // 是否已发放放置奖励
@@ -225,18 +229,18 @@ class PhysicsWorld {
     Sleeping.set(b, false);
     b.isSleeping = false;
     b.sleepCounter = 0;
-    // 落地真实化: 接触释放后禁止休眠若干帧, 让求解器先解算落地穿透,
-    // 防止小间隙+冲击造成的微小穿透被休眠冻结成可见重叠.
-    b.noSleepFrames = RELEASE_NO_SLEEP_FRAMES;
-    // 重新施加材质 (setStatic 可能重置部分属性)
-    b.friction = BLOCK_FRICTION;
-    b.frictionStatic = BLOCK_FRICTION_STATIC;
-    b.restitution = BLOCK_RESTITUTION;
+    // 重新施加材质 (setStatic 可能重置部分属性). 用刚体自身记录的 matProps,
+    // 以保留石块的高密度 -> 更重 (勿硬编码普通密度, 否则石块会变回普通重量).
+    const m = b.matProps || { density: BLOCK_DENSITY, friction: BLOCK_FRICTION, frictionStatic: BLOCK_FRICTION_STATIC, restitution: BLOCK_RESTITUTION };
+    Body.setDensity(b, m.density);   // 设质量 = density × area (石块 6× 普通)
+    b.friction = m.friction;
+    b.frictionStatic = m.frictionStatic;
+    b.restitution = m.restitution;
     for (const p of b.parts) {
       if (p === b) continue;
-      p.friction = BLOCK_FRICTION;
-      p.frictionStatic = BLOCK_FRICTION_STATIC;
-      p.restitution = BLOCK_RESTITUTION;
+      p.friction = m.friction;
+      p.frictionStatic = m.frictionStatic;
+      p.restitution = m.restitution;
     }
     // 赋予初始水平速度 (横移撞向相邻方块时由 _moveHorizontal 传入).
     // 必须在唤醒之后, 否则被休眠机制覆盖.

@@ -29,10 +29,8 @@
       <canvas id="canvas" width="540" height="720"></canvas>
       <div id="overlay">
         <h1>PHYSICS TETRIS</h1>
-        <div class="sub">真实刚体物理 · 重心平衡 · 力矩倾覆 · 接触即转物理</div>
         <div class="keys">
-          方块逐格下落 <b>接触即转物理</b><br>
-          <b>← →</b> 移动 &nbsp; <b>↑</b> 旋转 &nbsp; <b>↓</b> 软降 &nbsp; <b>空格</b> 硬降<br>
+          <b>← →</b> 移动 &nbsp; <b>↑</b> 旋转 &nbsp; <b>↓</b> 加速下降 &nbsp; <b>空格</b> 急坠<br>
           <b>P</b> 暂停 &nbsp; <b>R</b> 重开
         </div>
         <div class="break" id="overlayBreak">
@@ -52,7 +50,6 @@
     <div class="card">
       <h3>生命 / Lives</h3>
       <div class="lives" id="lives"></div>
-      <div class="small muted" style="margin-top:8px">掉落 3 次即结束 (Y&lt;0)</div>
     </div>
 
     <div class="card">
@@ -73,8 +70,8 @@
       <h3>操作 / Controls</h3>
       <div class="help">
         <kbd>←</kbd><kbd>→</kbd> 移动 · <kbd>↑</kbd> 旋转<br>
-        <kbd>↓</kbd> 软降 · <kbd>Space</kbd> 硬降 (接触转物理)<br>
-        <kbd>P</kbd> 暂停 · <kbd>R</kbd> 重开 · <kbd>O</kbd> 设置
+        <kbd>↓</kbd> 加速下降 · <kbd>Space</kbd> 急坠<br>
+        <kbd>P</kbd> 暂停 · <kbd>R</kbd> 重开 · <kbd>O</kbd> 设置<br>
       </div>
       <div class="btn-row" style="margin-top:8px">
         <button class="btn" id="btn-settings">设置 (O)</button>

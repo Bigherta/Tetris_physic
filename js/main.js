@@ -181,8 +181,8 @@
     { id: 'left',   label: '左移',   sub: 'Move Left' },
     { id: 'right',  label: '右移',   sub: 'Move Right' },
     { id: 'rotate', label: '旋转',   sub: 'Rotate' },
-    { id: 'soft',   label: '软降',   sub: 'Soft Drop' },
-    { id: 'hard',   label: '硬降',   sub: 'Hard Drop' },
+    { id: 'soft',   label: '加速下降',   sub: 'Soft Drop' },
+    { id: 'hard',   label: '急坠',   sub: 'Hard Drop' },
   ];
 
   function renderKeyBinds() {
@@ -257,5 +257,5 @@
   window.game = game;
   window.ACTION = ACTION;
   console.log('%cPhysics Tetris 已就绪', 'color:#22d3ee;font-weight:bold');
-  console.log('  操作: ←→↑ 移动/旋转 · ↓ 软降 · 空格 硬降 · P 暂停 · R 重开');
+  console.log('  操作: ←→↑ 移动/旋转 · ↓ 加速下降 · 空格 急坠 · P 暂停 · R 重开');
 })();

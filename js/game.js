@@ -22,6 +22,7 @@ class Game {
     this.startTime = 0;
     this.elapsedMs = 0;
     this.nextShape = null;
+    this.nextMaterial = 'normal';  // 下一块的材质 ('normal' | 'stone'); 1/7 概率为石块
     this.bag = new PieceBag();    // 7-bag 随机器 (标准俄罗斯方块生成)
 
     this.placeScore = 0;       // S_place 当前值
@@ -52,6 +53,7 @@ class Game {
     this.elapsedMs = 0;
     this.bag.reset();
     this.nextShape = this.bag.next();
+    this.nextMaterial = this._rollMaterial();
     this.placeScore = 0;
     this.peakHeight = 0;
     this.placedCount = 0;
@@ -62,7 +64,7 @@ class Game {
     this.pendingSpawn = false;
     this.spawnWait = 0;
     this._spawn(true);
-    this.renderer.drawNext(this.nextShape);
+    this.renderer.drawNext(this.nextShape, this.nextMaterial);
     if (!silent) this._notify();
   }
 
@@ -84,13 +86,19 @@ class Game {
 
   // ---- 生成新活动方块 (kinematic, isStatic) --------------------
   _spawn(initial = false) {
-    const body = this.physics.createPiece(this.nextShape, SPAWN_X, SPAWN_Y, 0, true);
+    const body = this.physics.createPiece(this.nextShape, SPAWN_X, SPAWN_Y, 0, true, this.nextMaterial);
     this.physics.setActive(body);
     this.nextShape = this.bag.next();
+    this.nextMaterial = this._rollMaterial();   // 预备下一块的材质 (供预览)
     // 顶部锁死检测: 生成位置已与堆叠重叠 -> 游戏结束
     if (this.physics.collidesAt(body, body.position, body.angle)) {
       this._gameOver('LOCKOUT');
     }
+  }
+
+  // ---- 随机决定下一块的材质: 1/10 概率为石块 -------------------
+  _rollMaterial() {
+    return Math.random() < STONE_PROB ? 'stone' : 'normal';
   }
 
   // ---- 玩家/AI 动作 (立即生效) --------------------------------
@@ -180,7 +188,7 @@ class Game {
   // ---- (内部) 生成下一块 --------------------------------------
   _doSpawn() {
     this._spawn();
-    this.renderer.drawNext(this.nextShape);
+    this.renderer.drawNext(this.nextShape, this.nextMaterial);
     this.pendingSpawn = false;
     this.spawnWait = 0;
     this.dropTimer = 0;
