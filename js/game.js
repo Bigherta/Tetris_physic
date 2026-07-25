@@ -104,8 +104,8 @@ class Game {
     if (this.state !== 'playing') return;
     const p = this.physics;
     switch (action) {
-      case ACTION.MOVE_LEFT:   this._moveHorizontal(-1, HORIZONTAL_TAP); break;
-      case ACTION.MOVE_RIGHT:  this._moveHorizontal(1, HORIZONTAL_TAP); break;
+      case ACTION.MOVE_LEFT:   this._moveHorizontal(-1, Settings.tapDist); break;
+      case ACTION.MOVE_RIGHT:  this._moveHorizontal(1, Settings.tapDist); break;
       case ACTION.ROTATE_CW:   p.tryRotate(); break;
       case ACTION.SOFT_DROP:   this._descend(); break;    // 下一格; 接触则转物理
       case ACTION.HARD_DROP:   this._hardDrop(); break;   // 瞬间下落到接触, 转物理
@@ -128,7 +128,7 @@ class Game {
       const backoff = 0.5;
       p.tryMove(-dir * backoff, 0);
       // 轻点视为瞬时: 用连续横移速度作为冲击速度 (换算为 Matter 的 px/步 单位)
-      this._lockActive(dir * HORIZONTAL_VEL_PER_STEP);
+      this._lockActive(dir * Settings.moveVelPerStep());
       return;
     }
     p.tryMove(dir * dist, 0);
@@ -236,9 +236,9 @@ class Game {
 
   // ---- 按住 ←/→ 连续横移 (恒定速度平滑移动, 非整格跳进) ----------
   // 按下瞬间的小幅响应由 main.js 的 applyAction(MOVE_LEFT/RIGHT) 处理;
-  // 这里负责按住期间的连续推进, 以 HORIZONTAL_SPEED px/s 逐帧位移.
+  // 这里负责按住期间的连续推进, 以 Settings.moveSpeed px/s 逐帧位移.
   // 撞到画布边界 -> 停下; 撞到别的方块/平台 -> 立即释放, 并以当前横移速度
-  // (HORIZONTAL_SPEED) 作为初始水平速度赋予刚体, 使其以该速度撞向相邻方块.
+  // 作为初始水平速度赋予刚体, 使其以该速度撞向相邻方块.
   _handleDAS(dt) {
     const left = this.keys.left, right = this.keys.right;
     if (left === right) return;          // 都没按或都按 -> 不动
@@ -246,7 +246,7 @@ class Game {
     const p = this.physics;
     const b = p.active;
     if (!b) return;
-    const dist = HORIZONTAL_SPEED * (dt / 1000);   // 本帧位移 (px)
+    const dist = Settings.moveSpeed * (dt / 1000);   // 本帧位移 (px)
     if (dist <= 0) return;
     const step = Math.min(dist, CELL * 0.4);
     let remaining = dist;
@@ -258,7 +258,7 @@ class Game {
       if (p.wouldHitBlock(dir * d, 0)) {                   // 撞别的方块 -> 释放转物理
         // 回退一小段间隙后释放, 使物理引擎从"接近接触"状态开始解算冲量.
         p.tryMove(-dir * 0.5, 0);
-        this._lockActive(dir * HORIZONTAL_VEL_PER_STEP);  // 以当前横移速度撞击 (px/步)
+        this._lockActive(dir * Settings.moveVelPerStep());  // 以当前横移速度撞击 (px/步)
         return;
       }
       p.tryMove(dir * d, 0);
