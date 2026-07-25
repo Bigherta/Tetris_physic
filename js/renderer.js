@@ -104,18 +104,9 @@ class Renderer {
     ctx.setLineDash([]);
   }
 
-  // ---- 掉落危险区: 标记已倾斜/不稳的刚体 -----------------------
+  // ---- 掉落危险区 (已停用: 不再绘制红框) -----------------------
   _drawDangerZones(physics) {
-    const ctx = this.ctx;
-    for (const b of physics.placed) {
-      const tilt = Math.abs(b.angle % (Math.PI / 2));
-      const unstable = !physics._isStable(b);
-      if (unstable && (tilt > 0.2 || Math.abs(b.angularVelocity) > 0.02)) {
-        ctx.strokeStyle = 'rgba(239,68,68,0.7)';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(b.bounds.min.x, b.bounds.min.y, b.bounds.max.x - b.bounds.min.x, b.bounds.max.y - b.bounds.min.y);
-      }
-    }
+    // 保留为空实现, 避免其他调用处改动
   }
 
   // ---- 落点预览 (ghost) ---------------------------------------
